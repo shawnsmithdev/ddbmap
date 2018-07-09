@@ -1,92 +1,76 @@
 package ddbmap
 
 import (
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"strconv"
+	ddb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/shawnsmithdev/ddbmap/ddbconv"
 )
 
 // Item is a type alias for the output of dynamodbattribute.MarshalMap.
-// This represents a bridge between the Go and DynamoDB type systems.
-type Item map[string]dynamodb.AttributeValue
+// This represents a single row in a DynamoDB table.
+type Item map[string]ddb.AttributeValue
 
-func requireToInt(s string) int {
-	val, err := strconv.Atoi(s)
-	forbidErr(err)
-	return val
-}
-func requireToInt64(s string) int64 {
-	val, err := strconv.ParseInt(s, 10, 64)
-	forbidErr(err)
-	return val
+// AsItem directly returns this item.
+func (item Item) AsItem() Item {
+	return item
 }
 
-func NToInt(av dynamodb.AttributeValue) int {
-	return requireToInt(*av.N)
-}
-func IntToN(val int) dynamodb.AttributeValue {
-	return dynamodb.AttributeValue{N: aws.String(strconv.Itoa(val))}
-}
-func NToInt64(av dynamodb.AttributeValue) int64 {
-	return requireToInt64(*av.N)
-}
-func Int64ToN(val int64) dynamodb.AttributeValue {
-	return dynamodb.AttributeValue{N: aws.String(strconv.FormatInt(val, 10))}
-}
-func StringToS(val string) dynamodb.AttributeValue {
-	return dynamodb.AttributeValue{S: aws.String(val)}
-}
-func BoolToBOOL(val bool) dynamodb.AttributeValue {
-	return dynamodb.AttributeValue{BOOL: aws.Bool(val)}
+// GetAsBinary returns the attribute of this item with the given name as a byte slice,
+// which may be empty if the attribute is not present or not binary data.
+func (item Item) GetAsBinary(attr string) []byte {
+	return ddbconv.FromBinary(item[attr])
 }
 
-func (item Item) GetBinary(attr string) []byte {
-	return item[attr].B
+// GetAsBinarySet returns the attribute of this item with the given name as a slice of byte slices,
+// which may be empty if the attribute is not present or not a binary set.
+func (item Item) GetAsBinarySet(attr string) [][]byte {
+	return ddbconv.FromBinarySet(item[attr])
 }
-func (item Item) GetBool(attr string) bool {
-	return *item[attr].BOOL
+
+// GetAsNumber returns the attribute of this item with the given name as an int,
+// and will panic if the attribute is not present or is not an integral number.
+// If the attribute is optional, use TryGetAsNumber instead.
+func (item Item) GetAsNumber(attr string) int {
+	return ddbconv.FromNumber(item[attr])
 }
-func (item Item) GetString(attr string) string {
-	return *item[attr].S
+
+// TryGetAsNumber returns the attribute of this item with the given name as an int,
+// with a false ok result if the attribute is not present or is not an integral number.
+func (item Item) TryGetAsNumber(attr string) (val int, ok bool) {
+	return ddbconv.TryFromNumber(item[attr])
 }
-func (item Item) GetBinarySet(attr string) [][]byte {
-	return item[attr].BS
+
+// GetAsNumberSet returns the attribute of this item with the given name as an int slice,
+// which may be empty if the attribute is not present or is not an number set with integral values.
+func (item Item) GetAsNumberSet(attr string) []int {
+	return ddbconv.FromNumberSet(item[attr])
 }
-func (item Item) GetList(attr string) []dynamodb.AttributeValue {
-	return item[attr].L // TODO: better
+
+// GetAsString returns the attribute of this imte with the given name as a string,
+// which may be empty if the attribute if not present or not a string.
+func (item Item) GetAsString(attr string) string {
+	return ddbconv.FromString(item[attr])
 }
-func (item Item) GetItem(attr string) Item {
-	return item[attr].M
+func (item Item) GetAsStringSet(attr string) []string {
+	return ddbconv.FromStringSet(item[attr])
 }
-func (item Item) GetInt(attr string) int {
-	return NToInt(item[attr])
+func (item Item) GetAsBool(attr string) bool {
+	return ddbconv.FromBool(item[attr])
 }
-func (item Item) GetInt64(attr string) int64 {
-	return NToInt64(item[attr])
+func (item Item) GetAsMap(attr string) Item {
+	return ddbconv.FromMap(item[attr])
 }
-func (item Item) GetInts(attr string) []int {
-	asStrings := item[attr].NS
-	val := make([]int, len(asStrings))
-	for i, s := range asStrings {
-		val[i] = requireToInt(s)
-	}
-	return val
-}
-func (item Item) GetStrings(attr string) []string {
-	return item[attr].SS
+func (item Item) GetAsList(attr string) []ddb.AttributeValue {
+	return ddbconv.FromList(item[attr])
 }
 func (item Item) IsNull(attr string) bool {
 	return *item[attr].NULL
 }
 
 // Itemable is implemented by types that can directly build representations of their data in the DynamoDB type system.
-// This allows users to avoid attribute tags and reflection.
+// This allows users to take direct control of how their data is presented to DynamoDB.
+// Item also implements Itemable, by returning itself, so any method that take Itemable can accept an Item directly.
 type Itemable interface {
 	AsItem() Item
-}
-
-type Keyable interface {
-	Key() interface{}
 }
 
 // ItemMap is a Map that supports Itemable types as well
@@ -101,17 +85,15 @@ type ItemMap interface {
 	// The ok result indicates whether the value was found.
 	LoadItem(key Itemable) (item Item, ok bool)
 
-	// StoreItem stores the item in the table
+	// StoreItem stores the given item in the table
 	StoreItem(item Itemable)
+	// StoreItemIfAbsent stores the given item in the table if there is no item already stored with the same key.
+	StoreItemIfAbsent(item Itemable) bool
 
 	// LoadOrStoreItem returns the item stored under the given key, if present.
 	// Otherwise, it stores and returns the given item.
 	// The loaded result is true if the value was loaded, false if stored.
 	LoadOrStoreItem(key Itemable) (actual Item, loaded bool)
-
-	// StoreItemIf stores the item in the table only if there is already an item with the given column set to the given
-	// value. The ok result indicates if the store occured.
-	StoreItemIf(item Itemable, col string, val *dynamodb.AttributeValue) (ok bool)
 
 	// RangeItems calls a consumer sequentially for each item present in the table.
 	// If f returns false, range stops the iteration.

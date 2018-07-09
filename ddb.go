@@ -3,17 +3,35 @@ package ddbmap
 
 import (
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	ddb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/dynamodbattribute"
 )
 
+func forbidErr(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
+
+// Marshal calls dynamodbattribute.MarshalMap on its input and returns the resulting Item.
+// This call will panic if MarshalMap returns an error
+func Marshal(x interface{}) Item {
+	xAsMap, err := dynamodbattribute.MarshalMap(x)
+	forbidErr(err)
+	return xAsMap
+}
+
 type TableConfig struct {
-	TableName    string
-	HashKeyName  string
-	RangeKeyName string
+	aws.Config
+	TableName                 string
+	HashKeyName               string
+	RangeKeyName              string
+	ScanConcurrency           int
+	ReadWithStrongConsistency bool
 }
 
 func (tc TableConfig) ToKeyItem(item Item) Item {
+	// TODO: This is kinda iffy isn't it...
 	switch len(item) {
 	case 0:
 		panic("empty item cannot be key")
@@ -25,7 +43,7 @@ func (tc TableConfig) ToKeyItem(item Item) Item {
 		}
 		fallthrough
 	default:
-		onlyKey := map[string]dynamodb.AttributeValue{
+		onlyKey := Item{
 			tc.HashKeyName: item[tc.HashKeyName],
 		}
 		if len(tc.RangeKeyName) > 0 {
@@ -37,30 +55,16 @@ func (tc TableConfig) ToKeyItem(item Item) Item {
 
 type ddbmap struct {
 	TableConfig
-	svc *dynamodb.DynamoDB
-}
-
-func forbidErr(err error) {
-	if err != nil {
-		panic(err)
-	}
+	svc *ddb.DynamoDB
 }
 
 func (d *ddbmap) delete(item Item) {
-	req := d.svc.DeleteItemRequest(&dynamodb.DeleteItemInput{
+	req := d.svc.DeleteItemRequest(&ddb.DeleteItemInput{
 		TableName: aws.String(d.TableName),
 		Key:       d.ToKeyItem(item),
 	})
 	_, err := req.Send()
 	forbidErr(err)
-}
-
-// Marshal calls dynamodbattribute.MarshalMap on its input and returns the resulting Item.
-// This call will panic if MarshalMap returns an error
-func Marshal(x interface{}) Item {
-	xAsMap, err := dynamodbattribute.MarshalMap(x)
-	forbidErr(err)
-	return xAsMap
 }
 
 func (d *ddbmap) Delete(key interface{}) {
@@ -71,16 +75,27 @@ func (d *ddbmap) DeleteItem(key Itemable) {
 	d.delete(key.AsItem())
 }
 
+func (d *ddbmap) load(key Item) (value Item, ok bool) {
+	req := d.svc.GetItemRequest(&ddb.GetItemInput{
+		TableName:      aws.String(d.TableName),
+		ConsistentRead: aws.Bool(d.ReadWithStrongConsistency),
+		Key:            d.ToKeyItem(key),
+	})
+	resp, err := req.Send()
+	forbidErr(err)
+	return resp.Item, len(resp.Item) > 0
+}
+
 func (d *ddbmap) Load(key interface{}) (value interface{}, ok bool) {
-	return nil, false
+	return d.load(Marshal(key))
 }
 
 func (d *ddbmap) LoadItem(key Itemable) (item Item, ok bool) {
-	return nil, false
+	return d.load(key.AsItem())
 }
 
 func (d *ddbmap) store(value Item) {
-	req := d.svc.PutItemRequest(&dynamodb.PutItemInput{
+	req := d.svc.PutItemRequest(&ddb.PutItemInput{
 		TableName: aws.String(d.TableName),
 		Item:      value,
 	})
@@ -88,6 +103,7 @@ func (d *ddbmap) store(value Item) {
 	forbidErr(err)
 }
 
+// Stores the given value. The key is ignored.
 func (d *ddbmap) Store(_, value interface{}) {
 	d.store(Marshal(value))
 }
@@ -96,26 +112,52 @@ func (d *ddbmap) StoreItem(value Itemable) {
 	d.store(value.AsItem())
 }
 
-func (d *ddbmap) LoadOrStore(key, value interface{}) (actual interface{}, loaded bool) {
-	return nil, false
+func (d *ddbmap) storeItemIfAbsent(value Item) bool {
+	return false // TODO
 }
 
-func (d *ddbmap) LoadOrStoreItem(key Itemable) (actual Item, loaded bool) {
-	return nil, false
+func (d *ddbmap) StoreItemIfAbsent(value Itemable) bool {
+	return d.storeItemIfAbsent(value.AsItem())
 }
 
-func (d *ddbmap) StoreItemIf(item Itemable, col string, val *dynamodb.AttributeValue) (ok bool) {
-	return false
+// LoadOrStore returns the value stored under same key as the given value, if any,
+// else stores and returns the given value.
+// The loaded result is true if the value was loaded, false if stored.
+func (d *ddbmap) loadOrStore(val Item) (Item, bool) {
+	for {
+		actual, loaded := d.load(val)
+		if loaded {
+			return actual, loaded
+		}
+		if d.storeItemIfAbsent(val) {
+			return val, false
+		}
+	}
 }
+
+func (d *ddbmap) LoadOrStore(_, val interface{}) (actual interface{}, loaded bool) {
+	return d.loadOrStore(Marshal(val))
+}
+
+func (d *ddbmap) LoadOrStoreItem(val Itemable) (actual Item, loaded bool) {
+	return d.loadOrStore(val.AsItem())
+}
+
+func (d *ddbmap) StoreItemIf(item Itemable, col string, val ddb.AttributeValue) (ok bool) {
+	return false // TODO
+}
+
 func (d *ddbmap) Range(f func(key, value interface{}) bool) {
+	// TODO
 }
 
 func (d *ddbmap) RangeItems(consumer func(Item) bool) {
+	// TODO
 }
 
-func NewItemMap(awsCfg aws.Config, tableCfg TableConfig) ItemMap {
+func DynamoItemMap(tableCfg TableConfig) ItemMap {
 	return &ddbmap{
 		TableConfig: tableCfg,
-		svc:         dynamodb.New(awsCfg),
+		svc:         ddb.New(tableCfg.Config),
 	}
 }
