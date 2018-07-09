@@ -1,7 +1,7 @@
 package ddbmap
 
 // Map is an interface implemented by *sync.Map.
-// Code that uses this interface can use sync.Map and DynamoDB almost interchangebly.
+// Code that uses this interface can use sync.Map and DynamoDB almost interchangeably.
 type Map interface {
 	// Delete delete the value stored under the given key, if any.
 	Delete(key interface{})
