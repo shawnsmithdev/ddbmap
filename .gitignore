@@ -13,3 +13,6 @@
 
 # Intellij
 .idea/
+
+# Test executable
+example/example

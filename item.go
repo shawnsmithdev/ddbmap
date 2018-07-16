@@ -73,29 +73,35 @@ type Itemable interface {
 	AsItem() Item
 }
 
-// ItemMap is a Map that supports Itemable types as well
-// Note that for DynamoDB a key must at least contain the hash key, and, if the table so configured, the range key.
+// ItemMap is a Map that supports Itemable types and more conditional operations.
+// Note that DynamoDB key(s) include a hash key, and optionally a range key.
 type ItemMap interface {
 	Map
 
-	// DeleteItem deletes the item for the given key, if it exists.
-	DeleteItem(key Itemable)
+	// DeleteItem deletes any existing item with the same key(s) as the given item.
+	DeleteItem(keys Itemable)
 
-	// LoadItem returns the item stored under the given key, if present.
-	// The ok result indicates whether the value was found.
-	LoadItem(key Itemable) (item Item, ok bool)
+	// LoadItem returns the existing item, if present, with the same key(s) as the given item.
+	// The ok result returns true if the value was found.
+	LoadItem(keys Itemable) (item Item, ok bool)
 
-	// StoreItem stores the given item in the table
+	// StoreItem stores the given item, clobbering any existing item with the same key(s).
 	StoreItem(item Itemable)
-	// StoreItemIfAbsent stores the given item in the table if there is no item already stored with the same key.
-	StoreItemIfAbsent(item Itemable) bool
 
-	// LoadOrStoreItem returns the item stored under the given key, if present.
+	// LoadOrStoreItem returns the existing item, if present, with the same key(s) as the given item.
 	// Otherwise, it stores and returns the given item.
 	// The loaded result is true if the value was loaded, false if stored.
-	LoadOrStoreItem(key Itemable) (actual Item, loaded bool)
+	LoadOrStoreItem(item Itemable) (actual Item, loaded bool)
 
-	// RangeItems calls a consumer sequentially for each item present in the table.
-	// If f returns false, range stops the iteration.
+	// StoreItemIfAbsent stores the given item if there is no existing item with the same key(s),
+	// returning true if stored.
+	StoreItemIfAbsent(item Itemable) bool
+
+	// StoreItemIfVersion stores the given item if there is an existing item with the same key(s) and the given version.
+	// Returns true if the item was stored.
+	StoreItemIfVersion(item Itemable, version int64) bool
+
+	// RangeItems calls the given consumer for each item present in the table, possibly on multiple go routines.
+	// If the consumer returns false, range eventually stops the iteration.
 	RangeItems(consumer func(Item) bool)
 }

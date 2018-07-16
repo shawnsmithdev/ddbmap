@@ -2,9 +2,13 @@ package main
 
 import (
 	"fmt"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/endpoints"
+	"github.com/aws/aws-sdk-go-v2/aws/external"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/shawnsmithdev/ddbmap"
 	"github.com/shawnsmithdev/ddbmap/ddbconv"
-	"testing"
+	"math"
 )
 
 const greeting = `DynamoDB Map Example Application
@@ -13,8 +17,7 @@ act as a test of the correctness of this library's interaction with dynamodb.
 
 To run, this application needs to be configured with credentials to access your
 AWS account, such as using envirionmental variables like AWS_PROFILE.
-This is similar to configuring the AWS CLI.
-`
+This is similar to configuring the AWS CLI.`
 
 // testRecord is used for the example tool as a typical data structure.
 // It has both dynamodbav tags and implements functions to and from Item.
@@ -24,16 +27,14 @@ This is similar to configuring the AWS CLI.
 type testRecord struct {
 	Id       int    `dynamodbav:"id"`
 	Name     string `dynamodbav:"name"`
-	Age      int    `dynamodbav:"age"`
 	Friendly bool   `dynamodbav:"friendly"`
 	Avatar   []byte `dynamodbav:"avatar"`
+	Version  int    `dynamodbav:"version"`
 }
 
 func makeTestRecord() testRecord {
 	return testRecord{
-		Id:       1,
 		Name:     "bob",
-		Age:      40,
 		Friendly: true,
 		Avatar:   []byte{0xde, 0xad, 0xbe, 0xef},
 	}
@@ -43,9 +44,9 @@ func (tr testRecord) AsItem() ddbmap.Item {
 	return ddbmap.Item{
 		"id":       ddbconv.ToNumber(tr.Id),
 		"name":     ddbconv.ToString(tr.Name),
-		"age":      ddbconv.ToNumber(tr.Age),
 		"friendly": ddbconv.ToBool(tr.Friendly),
 		"avatar":   ddbconv.ToBinary(tr.Avatar),
+		"version":  ddbconv.ToNumber(tr.Version),
 	}
 }
 
@@ -53,49 +54,58 @@ func fromItem(item ddbmap.Item) testRecord {
 	return testRecord{
 		Id:       item.GetAsNumber("id"),
 		Name:     item.GetAsString("name"),
-		Age:      item.GetAsNumber("age"),
 		Friendly: item.GetAsBool("friendly"),
 		Avatar:   item.GetAsBinary("avatar"),
+		Version:  item.GetAsNumber("version"),
 	}
 }
 
-func testItemMap(m ddbmap.ItemMap, t *testing.T) {
-	x := makeTestRecord()
-	m.StoreItem(x)
-	if loaded, loadOk := m.LoadItem(x); loadOk {
-		y := fromItem(loaded)
-		if x.Name != y.Name {
-			t.Fail()
-		}
-	} else {
-		t.Fail()
-	}
-	m.DeleteItem(x)
-	if _, loadOk := m.LoadItem(x); loadOk {
-		t.Fail()
+func forbidErr(err error) {
+	if err != nil {
+		panic(err)
 	}
 }
 
-func testMap(m ddbmap.Map, t *testing.T) {
-	x := makeTestRecord()
-	m.Store(x.Id, x)
-	if loaded, loadOk := m.Load(x.Id); loadOk {
-		if y, castOk := loaded.(testRecord); castOk {
-			if x.Name != y.Name {
-				t.Fail()
-			}
-		} else {
-			t.Fail()
-		}
-	} else {
-		t.Fail()
+// TODO: move to config profile
+func ddbLocalConfig() aws.Config {
+	cfg, err := external.LoadDefaultAWSConfig()
+	forbidErr(err)
+	cfg.Retryer = aws.DefaultRetryer{
+		NumMaxRetries: math.MaxInt32,
 	}
-	m.Delete(x.Id)
-	if _, loadOk := m.Load(x.Id); loadOk {
-		t.Fail()
+	cfg.Credentials = aws.StaticCredentialsProvider{
+		Value: aws.Credentials{
+			AccessKeyID:     "foo",
+			SecretAccessKey: "bar",
+		},
 	}
+	cfg.EndpointResolver = aws.ResolveWithEndpointURL("http://localhost:8000")
+	cfg.Region = endpoints.UsEast1RegionID
+	return cfg
 }
 
 func main() {
-	fmt.Print(greeting)
+	fmt.Println(greeting)
+	tCfg := ddbmap.TableConfig{
+		Config:                 ddbLocalConfig(), // TODO
+		TableName:              "test",
+		HashKeyName:            "id",
+		HashKeyType:            dynamodb.ScalarAttributeTypeN,
+		CreateTableIfNotExists: true,
+		ScanConcurrency:        8,
+	}
+	itemMap := tCfg.NewItemMap()
+
+	a := makeTestRecord()
+	fmt.Printf("\n%+v\n", a)
+	itemMap.StoreItem(a)
+	b, ok := itemMap.LoadItem(a)
+	if !ok {
+		panic("not ok)")
+	}
+	fmt.Printf("%+v\n", fromItem(b))
+	itemMap.RangeItems(func(item ddbmap.Item) (getMore bool) {
+		fmt.Printf("%+v\n", fromItem(item))
+		return true
+	})
 }

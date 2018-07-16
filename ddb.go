@@ -3,8 +3,11 @@ package ddbmap
 
 import (
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/awserr"
 	ddb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/dynamodbattribute"
+	"sync"
+	"time"
 )
 
 func forbidErr(err error) {
@@ -13,44 +16,12 @@ func forbidErr(err error) {
 	}
 }
 
-// Marshal calls dynamodbattribute.MarshalMap on its input and returns the resulting Item.
+// MarshalItem calls dynamodbattribute.MarshalMap on its input and returns the resulting Item.
 // This call will panic if MarshalMap returns an error
-func Marshal(x interface{}) Item {
+func MarshalItem(x interface{}) Item {
 	xAsMap, err := dynamodbattribute.MarshalMap(x)
 	forbidErr(err)
 	return xAsMap
-}
-
-type TableConfig struct {
-	aws.Config
-	TableName                 string
-	HashKeyName               string
-	RangeKeyName              string
-	ScanConcurrency           int
-	ReadWithStrongConsistency bool
-}
-
-func (tc TableConfig) ToKeyItem(item Item) Item {
-	// TODO: This is kinda iffy isn't it...
-	switch len(item) {
-	case 0:
-		panic("empty item cannot be key")
-	case 1:
-		return item
-	case 2:
-		if len(tc.RangeKeyName) > 0 {
-			return item
-		}
-		fallthrough
-	default:
-		onlyKey := Item{
-			tc.HashKeyName: item[tc.HashKeyName],
-		}
-		if len(tc.RangeKeyName) > 0 {
-			onlyKey[tc.RangeKeyName] = item[tc.RangeKeyName]
-		}
-		return onlyKey
-	}
 }
 
 type ddbmap struct {
@@ -58,9 +29,106 @@ type ddbmap struct {
 	svc *ddb.DynamoDB
 }
 
+func (d *ddbmap) checkErr(err error) {
+	if err != nil {
+		d.handleErr(err)
+	}
+}
+
+func (d *ddbmap) handleErr(err error) (dne bool) {
+	if aerr, ok := err.(awserr.Error); ok {
+		switch aerr.Code() {
+		case ddb.ErrCodeResourceNotFoundException:
+			return true
+		case ddb.ErrCodeInternalServerError:
+			return false
+		default:
+			d.logAlways(aerr.Error())
+		}
+	} else {
+		d.logAlways(err.Error())
+	}
+	panic(err) // TODO: don't panic
+}
+
+// Logs to aws logger, if present, but only if debug logging is enabled.
+func (d *ddbmap) log(v ...interface{}) {
+	if d.Config.Logger != nil && d.Config.LogLevel&aws.LogDebug != 0 {
+		d.Config.Logger.Log(v...)
+	}
+}
+
+// Logs to aws logger, if present, even if debug logging is not enabled.
+func (d *ddbmap) logAlways(v ...interface{}) {
+	if d.Config.Logger != nil {
+		d.Config.Logger.Log(v...)
+	}
+}
+
+func (d *ddbmap) checkExists() {
+	if !d.CreateTableIfNotExists {
+		return
+	}
+	// check for table
+	for {
+		dtReq := d.svc.DescribeTableRequest(&ddb.DescribeTableInput{TableName: &d.TableName})
+		dtResp, err := dtReq.Send()
+		if err == nil {
+			status := dtResp.Table.TableStatus
+			if status == ddb.TableStatusActive {
+				d.log("[DDBMAP] Table exists and is active", dtResp)
+				return
+			}
+			d.logAlways("[DDBMAP] Table not yet ready, status:", status)
+		} else {
+			if d.handleErr(err) {
+				break
+			}
+			d.logAlways("[DDBMAP] Failed to describe table, retrying...")
+		}
+		time.Sleep(1 * time.Second)
+	}
+	d.createTable()
+}
+
+func (d *ddbmap) createTable() {
+	// create new table
+	schema := []ddb.KeySchemaElement{
+		{AttributeName: &d.HashKeyName, KeyType: ddb.KeyTypeHash},
+	}
+	attrs := []ddb.AttributeDefinition{
+		{AttributeName: &d.HashKeyName, AttributeType: d.HashKeyType},
+	}
+	if d.ranged() {
+		schema = append(schema,
+			ddb.KeySchemaElement{AttributeName: &d.RangeKeyName, KeyType: ddb.KeyTypeRange})
+		attrs = append(attrs,
+			ddb.AttributeDefinition{AttributeName: &d.RangeKeyName, AttributeType: d.RangeKeyType})
+	}
+	if d.CreateTableReadCapacity < 1 {
+		d.CreateTableReadCapacity = 1
+	}
+	if d.CreateTableWriteCapacity < 1 {
+		d.CreateTableWriteCapacity = 1
+	}
+	req := d.svc.CreateTableRequest(&ddb.CreateTableInput{
+		TableName:            &d.TableName,
+		KeySchema:            schema,
+		AttributeDefinitions: attrs,
+		ProvisionedThroughput: &ddb.ProvisionedThroughput{
+			ReadCapacityUnits:  &d.CreateTableReadCapacity,
+			WriteCapacityUnits: &d.CreateTableWriteCapacity,
+		},
+	})
+	d.logAlways("[DDBMAP] Will create new table:", d.TableName)
+	resp, err := req.Send()
+	d.checkErr(err)
+	d.logAlways("[DDBMAP] Created new table:", resp)
+}
+
 func (d *ddbmap) delete(item Item) {
 	req := d.svc.DeleteItemRequest(&ddb.DeleteItemInput{
-		TableName: aws.String(d.TableName),
+		TableName: &d.TableName,
 		Key:       d.ToKeyItem(item),
 	})
 	_, err := req.Send()
@@ -68,7 +136,7 @@ func (d *ddbmap) delete(item Item) {
 }
 
 func (d *ddbmap) Delete(key interface{}) {
-	d.delete(Marshal(key))
+	d.delete(MarshalItem(key))
 }
 
 func (d *ddbmap) DeleteItem(key Itemable) {
@@ -77,8 +145,8 @@ func (d *ddbmap) DeleteItem(key Itemable) {
 
 func (d *ddbmap) load(key Item) (value Item, ok bool) {
 	req := d.svc.GetItemRequest(&ddb.GetItemInput{
-		TableName:      aws.String(d.TableName),
-		ConsistentRead: aws.Bool(d.ReadWithStrongConsistency),
+		TableName:      &d.TableName,
+		ConsistentRead: &d.ReadWithStrongConsistency,
 		Key:            d.ToKeyItem(key),
 	})
 	resp, err := req.Send()
@@ -87,56 +155,56 @@ func (d *ddbmap) load(key Item) (value Item, ok bool) {
 }
 
 func (d *ddbmap) Load(key interface{}) (value interface{}, ok bool) {
-	return d.load(Marshal(key))
+	return d.load(MarshalItem(key))
 }
 
 func (d *ddbmap) LoadItem(key Itemable) (item Item, ok bool) {
 	return d.load(key.AsItem())
 }
 
-func (d *ddbmap) store(value Item) {
+func (d *ddbmap) store(item Item) {
 	req := d.svc.PutItemRequest(&ddb.PutItemInput{
-		TableName: aws.String(d.TableName),
-		Item:      value,
+		TableName: &d.TableName,
+		Item:      item,
 	})
 	_, err := req.Send()
 	forbidErr(err)
 }
 
 // Stores the given value. The key is ignored.
-func (d *ddbmap) Store(_, value interface{}) {
-	d.store(Marshal(value))
+func (d *ddbmap) Store(_, val interface{}) {
+	d.store(MarshalItem(val))
 }
 
-func (d *ddbmap) StoreItem(value Itemable) {
-	d.store(value.AsItem())
+func (d *ddbmap) StoreItem(val Itemable) {
+	d.store(val.AsItem())
 }
 
-func (d *ddbmap) storeItemIfAbsent(value Item) bool {
+func (d *ddbmap) storeItemIfAbsent(item Item) bool {
 	return false // TODO
 }
 
-func (d *ddbmap) StoreItemIfAbsent(value Itemable) bool {
-	return d.storeItemIfAbsent(value.AsItem())
+func (d *ddbmap) StoreItemIfAbsent(val Itemable) bool {
+	return d.storeItemIfAbsent(val.AsItem())
 }
 
 // LoadOrStore returns the value stored under same key as the given value, if any,
 // else stores and returns the given value.
 // The loaded result is true if the value was loaded, false if stored.
-func (d *ddbmap) loadOrStore(val Item) (Item, bool) {
+func (d *ddbmap) loadOrStore(item Item) (Item, bool) {
 	for {
-		actual, loaded := d.load(val)
+		actual, loaded := d.load(item)
 		if loaded {
 			return actual, loaded
 		}
-		if d.storeItemIfAbsent(val) {
-			return val, false
+		if d.storeItemIfAbsent(item) {
+			return item, false
 		}
 	}
 }
 
 func (d *ddbmap) LoadOrStore(_, val interface{}) (actual interface{}, loaded bool) {
-	return d.loadOrStore(Marshal(val))
+	return d.loadOrStore(MarshalItem(val))
 }
 
 func (d *ddbmap) LoadOrStoreItem(val Itemable) (actual Item, loaded bool) {
@@ -147,17 +215,59 @@ func (d *ddbmap) StoreItemIf(item Itemable, col string, val ddb.AttributeValue) 
 	return false // TODO
 }
 
-func (d *ddbmap) Range(f func(key, value interface{}) bool) {
-	// TODO
+func (d *ddbmap) StoreItemIfVersion(item Itemable, version int64) (ok bool) {
+	return false // TODO:
+}
+
+func (d *ddbmap) Range(consumer func(_, value interface{}) bool) {
+	d.RangeItems(func(item Item) bool {
+		return consumer(nil, item)
+	})
+}
+
+func (d *ddbmap) rangeSegment(consumer func(Item) bool, workerId int64) {
+	var segment *int64
+	var totalSegments *int64
+	if d.ScanConcurrency > 1 {
+		segment = &workerId
+		totalSegments = &d.ScanConcurrency
+	}
+	input := ddb.ScanInput{
+		TableName:      &d.TableName,
+		ConsistentRead: &d.ReadWithStrongConsistency,
+		Select:         ddb.SelectAllAttributes,
+		Segment:        segment,
+		TotalSegments:  totalSegments,
+	}
+	for {
+		req := d.svc.ScanRequest(&input)
+		resp, err := req.Send()
+		forbidErr(err)
+		for _, item := range resp.Items {
+			if consumer(item) {
+				return
+			}
+		}
+		if resp.LastEvaluatedKey == nil {
+			return
+		}
+		input.ExclusiveStartKey = resp.LastEvaluatedKey
+	}
 }
 
 func (d *ddbmap) RangeItems(consumer func(Item) bool) {
-	// TODO
-}
-
-func DynamoItemMap(tableCfg TableConfig) ItemMap {
-	return &ddbmap{
-		TableConfig: tableCfg,
-		svc:         ddb.New(tableCfg.Config),
+	if d.ScanConcurrency > 1 {
+		d.log("Parallel scan:", d.ScanConcurrency)
+		var wg sync.WaitGroup
+		for i := int64(0); i < d.ScanConcurrency; i++ {
+			wg.Add(1)
+			go func(workerId int64) {
+				defer wg.Done()
+				d.rangeSegment(consumer, workerId)
+			}(i)
+		}
+		wg.Wait()
+	} else {
+		d.rangeSegment(consumer, 0)
 	}
 }
