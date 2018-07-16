@@ -101,7 +101,8 @@ type ItemMap interface {
 	// Returns true if the item was stored.
 	StoreItemIfVersion(item Itemable, version int64) bool
 
-	// RangeItems calls the given consumer for each item present in the table, possibly on multiple go routines.
+	// RangeItems calls the given consumer for each stored item.
 	// If the consumer returns false, range eventually stops the iteration.
+	// If a consumer returns false once, it should eventually always return false.
 	RangeItems(consumer func(Item) bool)
 }

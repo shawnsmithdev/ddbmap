@@ -24,6 +24,10 @@ func MarshalItem(x interface{}) Item {
 	return xAsMap
 }
 
+func UnmarshalItem(item Item, out interface{}) {
+	forbidErr(dynamodbattribute.UnmarshalMap(item, out))
+}
+
 type ddbmap struct {
 	TableConfig
 	svc *ddb.DynamoDB
@@ -43,24 +47,17 @@ func (d *ddbmap) handleErr(err error) (dne bool) {
 		case ddb.ErrCodeInternalServerError:
 			return false
 		default:
-			d.logAlways(aerr.Error())
+			d.log(aerr.Error())
 		}
 	} else {
-		d.logAlways(err.Error())
+		d.log(err.Error())
 	}
 	panic(err) // TODO: don't panic
 }
 
 // Logs to aws logger, if present, but only if debug logging is enabled.
 func (d *ddbmap) log(v ...interface{}) {
-	if d.Config.Logger != nil && d.Config.LogLevel&aws.LogDebug != 0 {
-		d.Config.Logger.Log(v...)
-	}
-}
-
-// Logs to aws logger, if present, even if debug logging is not enabled.
-func (d *ddbmap) logAlways(v ...interface{}) {
-	if d.Config.Logger != nil {
+	if d.Config.Logger != nil && d.Config.LogLevel.Matches(aws.LogDebug) {
 		d.Config.Logger.Log(v...)
 	}
 }
@@ -76,15 +73,15 @@ func (d *ddbmap) checkExists() {
 		if err == nil {
 			status := dtResp.Table.TableStatus
 			if status == ddb.TableStatusActive {
-				d.log("[DDBMAP] Table exists and is active", dtResp)
+				d.log("[ddbmap] Table exists and is active", dtResp)
 				return
 			}
-			d.logAlways("[DDBMAP] Table not yet ready, status:", status)
+			d.log("[ddbmap] Table not yet ready, status:", status)
 		} else {
 			if d.handleErr(err) {
 				break
 			}
-			d.logAlways("[DDBMAP] Failed to describe table, retrying...")
+			d.log("[ddbmap] Failed to describe table, retrying...")
 		}
 		time.Sleep(1 * time.Second)
 	}
@@ -120,10 +117,10 @@ func (d *ddbmap) createTable() {
 			WriteCapacityUnits: &d.CreateTableWriteCapacity,
 		},
 	})
-	d.logAlways("[DDBMAP] Will create new table:", d.TableName)
+	d.log("[ddbmap] Will create new table:", d.TableName)
 	resp, err := req.Send()
 	d.checkErr(err)
-	d.logAlways("[DDBMAP] Created new table:", resp)
+	d.log("[ddbmap] Created new table:", resp)
 }
 
 func (d *ddbmap) delete(item Item) {
@@ -211,10 +208,6 @@ func (d *ddbmap) LoadOrStoreItem(val Itemable) (actual Item, loaded bool) {
 	return d.loadOrStore(val.AsItem())
 }
 
-func (d *ddbmap) StoreItemIf(item Itemable, col string, val ddb.AttributeValue) (ok bool) {
-	return false // TODO
-}
-
 func (d *ddbmap) StoreItemIfVersion(item Itemable, version int64) (ok bool) {
 	return false // TODO:
 }
@@ -257,7 +250,6 @@ func (d *ddbmap) rangeSegment(consumer func(Item) bool, workerId int64) {
 
 func (d *ddbmap) RangeItems(consumer func(Item) bool) {
 	if d.ScanConcurrency > 1 {
-		d.log("Parallel scan:", d.ScanConcurrency)
 		var wg sync.WaitGroup
 		for i := int64(0); i < d.ScanConcurrency; i++ {
 			wg.Add(1)

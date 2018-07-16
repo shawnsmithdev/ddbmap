@@ -25,8 +25,9 @@ type TableConfig struct {
 	ScanConcurrency int64
 	// If the client should use strongly consistent reads. This costs twice as much as eventually consistent reads.
 	ReadWithStrongConsistency bool
-	// CreateTableIfNotExists determines if this client will create the table if needed.
-	// If true, users must also set the HashKeyType and, if there is a range key, the RangeKeyType.
+	// CreateTableIfNotExists determines if a table should be created if needed.
+	// If true, users must also set the HashKeyType and, if there is a range key, the RangeKeyType, and
+	// may choose to also set CreateTableReadCapacity and CreateTableWriteCapacity
 	CreateTableIfNotExists bool
 	// CreateTableReadCapacity is the read capacity of the new table, if created. 1 is used if less than 1.
 	CreateTableReadCapacity int64
@@ -50,6 +51,8 @@ func (tc TableConfig) ToKeyItem(item Item) (result Item) {
 	return result
 }
 
+// NewItemMap creates an ItemMap view of a DynamoDB table from a TableConfig.
+// If ScanTableIfNotExists is true and the table does not exist, it will be created.
 func (tc TableConfig) NewItemMap() ItemMap {
 	im := &ddbmap{
 		TableConfig: tc,
