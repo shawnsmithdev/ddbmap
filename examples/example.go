@@ -22,9 +22,24 @@ You can use DynamoDB Local with the "endpoint" cli flag and a profile with fake 
 example: AWS_PROFILE=local ./example -endpoint=http://localhost:8000
 `
 
-// user is a typical data structure that implements Itemable.
+// userKey is a hashable type to store key for a user.
+type userKey struct {
+	Id int
+}
+
+func (uk userKey) AsItem() ddbmap.Item {
+	return ddbmap.Item{
+		userIdField: ddbconv.ToNumber(uk.Id),
+	}
+}
+
+func userKeyFromItem(item ddbmap.Item) interface{} {
+	return userKey{Id: ddbconv.FromNumber(item[userIdField])}
+}
+
+// user is a typical data structure
 type user struct {
-	Id       int
+	userKey
 	Name     string
 	Friendly bool
 	Avatar   []byte
@@ -32,54 +47,54 @@ type user struct {
 }
 
 const (
-	userId        = "id"
-	userName      = "name"
-	userFriendly  = "friendly"
-	userAvatar    = "avatar"
-	userVersion   = "version"
 	userTableName = "test-user"
+
+	userIdField       = "id"
+	userNameField     = "name"
+	userFriendlyField = "friendly"
+	userAvatarField   = "avatar"
+	userVersionField  = "version"
 )
 
 func (tr user) AsItem() ddbmap.Item {
 	return ddbmap.Item{
-		userId:       ddbconv.ToNumber(tr.Id),
-		userName:     ddbconv.ToString(tr.Name),
-		userFriendly: ddbconv.ToBool(tr.Friendly),
-		userAvatar:   ddbconv.ToBinary(tr.Avatar),
-		userVersion:  ddbconv.ToNumber(tr.Version),
+		userIdField:       ddbconv.ToNumber(tr.Id),
+		userNameField:     ddbconv.ToString(tr.Name),
+		userFriendlyField: ddbconv.ToBool(tr.Friendly),
+		userAvatarField:   ddbconv.ToBinary(tr.Avatar),
+		userVersionField:  ddbconv.ToNumber(tr.Version),
 	}
 }
 
 func userFromItem(item ddbmap.Item) user {
 	return user{
-		Id:       item.GetAsNumber(userId),
-		Name:     item.GetAsString(userName),
-		Friendly: item.GetAsBool(userFriendly),
-		Avatar:   item.GetAsBinary(userAvatar),
-		Version:  item.GetAsNumber(userVersion),
+		userKey:  userKey{Id: item.GetAsNumber(userIdField)},
+		Name:     item.GetAsString(userNameField),
+		Friendly: item.GetAsBool(userFriendlyField),
+		Avatar:   item.GetAsBinary(userAvatarField),
+		Version:  item.GetAsNumber(userVersionField),
+	}
+}
+
+func getUserDynamo(cfg aws.Config) ddbmap.TableConfig {
+	return ddbmap.TableConfig{
+		AWSConfig: cfg,
+		TableName: userTableName,
+		// HashKeyName:               userIdField,
+		// HashKeyType:               dynamodb.ScalarAttributeTypeN,
+		// CreateTableIfNotExists:    true,
+		ScanConcurrency:           8,
+		ReadWithStrongConsistency: true,
+		VersionName:               userVersionField,
 	}
 }
 
 // Example of using the interface-based map methods.
-func testUser(cfg aws.Config) {
-	// Configure the map
-	tCfg := ddbmap.TableConfig{
-		Config:                    cfg,
-		TableName:                 userTableName,
-		HashKeyName:               userId,
-		HashKeyType:               dynamodb.ScalarAttributeTypeN,
-		CreateTableIfNotExists:    true,
-		ScanConcurrency:           8,
-		ReadWithStrongConsistency: true,
-		VersionName:               userVersion,
-	}
-
-	// Create the map
-	itemMap := tCfg.NewItemMap()
+func testUser(itemMap ddbmap.ItemMap) {
 
 	// Test storing a user
 	a := user{
-		Id:       4,
+		userKey:  userKey{Id: 4},
 		Name:     "bob",
 		Friendly: true,
 		Avatar:   []byte{0xde, 0xad, 0xbe, 0xef},
@@ -88,7 +103,7 @@ func testUser(cfg aws.Config) {
 	itemMap.StoreItem(a)
 
 	// Test loading a user
-	b, ok := itemMap.LoadItem(user{Id: 4})
+	b, ok := itemMap.LoadItem(userKey{Id: 4})
 	if !ok {
 		panic("not ok")
 	}
@@ -125,7 +140,7 @@ func gameFromItem(item interface{}) game {
 func testGame(cfg aws.Config) {
 	// Configure the map
 	tCfg := ddbmap.TableConfig{
-		Config:                    cfg,
+		AWSConfig:                 cfg,
 		TableName:                 gameTableName,
 		HashKeyName:               gameId,
 		HashKeyType:               dynamodb.ScalarAttributeTypeN,
@@ -148,7 +163,7 @@ func testGame(cfg aws.Config) {
 	itemMap.Store(a, a)
 
 	// Test loading a user
-	item, ok := itemMap.Load(game{Id: 4})
+	item, ok := itemMap.Load(a)
 	if !ok {
 		panic("not ok")
 	}
@@ -189,6 +204,17 @@ func main() {
 		panic(err)
 	}
 	cfg = checkFlags(cfg)
-	testUser(cfg)
+
+	// Test Itemable API using Dynamo
+	table := getUserDynamo(cfg)
+	table.Debug = true
+	testUser(table.NewItemMap())
+
+	// Test Itemable API using sync.Map
+	testUser(&ddbmap.SyncItemMap{
+		Keyer: userKeyFromItem,
+	})
+
+	// Test reflection API using Dynamo
 	testGame(cfg)
 }

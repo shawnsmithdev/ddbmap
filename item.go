@@ -5,8 +5,8 @@ import (
 	"github.com/shawnsmithdev/ddbmap/ddbconv"
 )
 
-// Item is a type alias for the output of dynamodbattribute.MarshalMap.
-// This represents a single row in a DynamoDB table.
+// Item is a type alias for map[string]AttributeValue, the output of dynamodbattribute.MarshalMap.
+// This represents a single row in a DynamoDB table or a 'Map' in the DynamoDB type system.
 type Item map[string]ddb.AttributeValue
 
 // AsItem directly returns this item.
@@ -93,16 +93,27 @@ type ItemMap interface {
 	// The loaded result is true if the value was loaded, false if stored.
 	LoadOrStoreItem(item Itemable) (actual Item, loaded bool)
 
+	// StoreIfAbsent stores the given value if there is no existing value with the same key(s),
+	// returning true if stored.
+	StoreIfAbsent(key, val interface{}) bool
+
 	// StoreItemIfAbsent stores the given item if there is no existing item with the same key(s),
 	// returning true if stored.
 	StoreItemIfAbsent(item Itemable) bool
-
-	// StoreItemIfVersion stores the given item if there is an existing item with the same key(s) and the given version.
-	// Returns true if the item was stored.
-	StoreItemIfVersion(item Itemable, version int64) bool
 
 	// RangeItems calls the given consumer for each stored item.
 	// If the consumer returns false, range eventually stops the iteration.
 	// If a consumer returns false once, it should eventually always return false.
 	RangeItems(consumer func(Item) bool)
+}
+
+// VersionedItemMap is an ItemMap that includes some compare-and-swap methods using a configured int64 version field.
+type VersionedItemMap interface {
+	ItemMap
+	// StoreIfVersion stores the given item if there is an existing item with the same key(s) and the given version.
+	// Returns true if the item was stored.
+	StoreIfVersion(val interface{}, version int64) (ok bool)
+	// StoreItemIfVersion stores the given item if there is an existing item with the same key(s) and the given version.
+	// Returns true if the item was stored.
+	StoreItemIfVersion(item Itemable, version int64) (ok bool)
 }
