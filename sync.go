@@ -102,9 +102,8 @@ func (m *SyncItemMap) RangeItems(consumer func(Item) bool) error {
 		if itemable, ok := value.(Itemable); ok {
 			consumer(itemable.AsItem())
 			return true
-		} else {
-			panic("value in SyncItemMap is not Itemable")
 		}
+		panic("value in SyncItemMap is not Itemable")
 	})
 	return nil
 }
