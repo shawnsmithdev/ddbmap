@@ -78,11 +78,11 @@ func userFromItem(item ddbmap.Item) user {
 
 func getUserDynamo(cfg aws.Config) ddbmap.TableConfig {
 	return ddbmap.TableConfig{
-		AWSConfig: cfg,
-		TableName: userTableName,
-		// HashKeyName:               userIdField,
-		// HashKeyType:               dynamodb.ScalarAttributeTypeN,
-		// CreateTableIfNotExists:    true,
+		AWSConfig:                 cfg,
+		TableName:                 userTableName,
+		HashKeyName:               userIdField,
+		HashKeyType:               dynamodb.ScalarAttributeTypeN,
+		CreateTableIfNotExists:    true,
 		ScanConcurrency:           8,
 		ReadWithStrongConsistency: true,
 		VersionName:               userVersionField,
@@ -103,7 +103,10 @@ func testUser(itemMap ddbmap.ItemMap) {
 	itemMap.StoreItem(a)
 
 	// Test loading a user
-	b, ok := itemMap.LoadItem(userKey{Id: 4})
+	b, ok, err := itemMap.LoadItem(userKey{Id: 4})
+	if err != nil {
+		panic(err)
+	}
 	if !ok {
 		panic("not ok")
 	}
@@ -208,6 +211,13 @@ func main() {
 	// Test Itemable API using Dynamo
 	table := getUserDynamo(cfg)
 	table.Debug = true
+	testUser(table.NewItemMap())
+
+	// Test key discovery
+	table.Debug = true
+	table.CreateTableIfNotExists = false
+	table.HashKeyName = ""
+	table.HashKeyType = ""
 	testUser(table.NewItemMap())
 
 	// Test Itemable API using sync.Map

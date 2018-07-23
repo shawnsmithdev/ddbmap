@@ -41,41 +41,43 @@ func (m *SyncItemMap) valuer(item Item) interface{} {
 }
 
 // DeleteItem deletes any existing item with the same key(s) as the given item.
-func (m *SyncItemMap) DeleteItem(keys Itemable) {
+func (m *SyncItemMap) DeleteItem(keys Itemable) error {
 	m.Delete(m.keyer(keys.AsItem()))
+	return nil
 }
 
 // LoadItem returns the existing item, if present, with the same key(s) as the given item.
 // The ok result returns true if the value was found.
-func (m *SyncItemMap) LoadItem(keys Itemable) (Item, bool) {
+func (m *SyncItemMap) LoadItem(keys Itemable) (Item, bool, error) {
 	result, ok := m.Load(m.keyer(keys.AsItem()))
 	if ok {
 		if resultItem, toItemOk := result.(Item); toItemOk {
-			return resultItem, toItemOk
+			return resultItem, toItemOk, nil
 		}
 	}
-	return nil, false
+	return nil, false, nil
 }
 
 // StoreItem stores the given item, clobbering any existing item with the same key(s).
-func (m *SyncItemMap) StoreItem(item Itemable) {
+func (m *SyncItemMap) StoreItem(item Itemable) error {
 	asItem := item.AsItem()
 	m.Store(m.keyer(asItem), m.valuer(asItem))
+	return nil
 }
 
 // LoadOrStoreItem returns the existing item, if present, with the same key(s) as the given item.
 // Otherwise, it stores and returns the given item.
 // The loaded result is true if the value was loaded, false if stored.
-func (m *SyncItemMap) LoadOrStoreItem(item Itemable) (actual Item, loaded bool) {
+func (m *SyncItemMap) LoadOrStoreItem(item Itemable) (actual Item, loaded bool, err error) {
 	asItem := item.AsItem()
 	maybe, loaded := m.LoadOrStore(m.keyer(asItem), m.valuer(asItem))
 	if loaded {
 		if result, isItemable := maybe.(Itemable); isItemable {
-			return result.AsItem(), isItemable
+			return result.AsItem(), isItemable, nil
 		}
 		panic("value in SyncItemMap is not Itemable")
 	}
-	return asItem, false
+	return asItem, false, nil
 }
 
 // StoreIfAbsent stores the given value if there is no existing value with the same key(s),
@@ -87,15 +89,15 @@ func (m *SyncItemMap) StoreIfAbsent(key, val interface{}) bool {
 
 // StoreItemIfAbsent stores the given item if there is no existing item with the same key(s),
 // returning true if stored.
-func (m *SyncItemMap) StoreItemIfAbsent(item Itemable) bool {
+func (m *SyncItemMap) StoreItemIfAbsent(item Itemable) (bool, error) {
 	asItem := item.AsItem()
-	return m.StoreIfAbsent(m.keyer(asItem), m.valuer(asItem))
+	return m.StoreIfAbsent(m.keyer(asItem), m.valuer(asItem)), nil
 }
 
 // RangeItems calls the given consumer for each stored item.
 // If the consumer returns false, range eventually stops the iteration.
 // If a consumer returns false once, it should eventually always return false.
-func (m *SyncItemMap) RangeItems(consumer func(Item) bool) {
+func (m *SyncItemMap) RangeItems(consumer func(Item) bool) error {
 	m.Range(func(_, value interface{}) bool {
 		if itemable, ok := value.(Itemable); ok {
 			consumer(itemable.AsItem())
@@ -104,4 +106,5 @@ func (m *SyncItemMap) RangeItems(consumer func(Item) bool) {
 			panic("value in SyncItemMap is not Itemable")
 		}
 	})
+	return nil
 }

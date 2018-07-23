@@ -3,6 +3,7 @@ package ddbmap
 import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ddb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"log"
 )
 
 // TableConfig holds details about a specific DynamoDB table, such as its name and key names and types.
@@ -36,7 +37,7 @@ type TableConfig struct {
 	CreateTableWriteCapacity int
 	// If true, debug logging in this library is enabled
 	Debug bool
-	// LoggerFunc is the logger used by this library for debug logging. The AWS config logger is used if nil.
+	// Logger is the logger used by this library for debug logging. The AWS config logger is used if nil.
 	Logger aws.Logger
 }
 
@@ -63,11 +64,12 @@ func (tc TableConfig) ToKeyItem(item Item) (result Item) {
 func (tc TableConfig) NewItemMap() ItemMap {
 	im := &ddbmap{
 		TableConfig: tc,
-		svc:         ddb.New(tc.AWSConfig),
+		Client:      ddb.New(tc.AWSConfig),
 	}
 	if im.CreateTableIfNotExists {
-		if !im.describeTable(false) {
-			im.createTable()
+		if ok, err := im.describeTable(false); !ok {
+			forbidErr(err, log.Println)
+			forbidErr(im.createTable(), log.Println)
 		}
 	} else if "" == im.HashKeyName {
 		im.describeTable(true)

@@ -79,19 +79,19 @@ type ItemMap interface {
 	Map
 
 	// DeleteItem deletes any existing item with the same key(s) as the given item.
-	DeleteItem(keys Itemable)
+	DeleteItem(keys Itemable) error
 
 	// LoadItem returns the existing item, if present, with the same key(s) as the given item.
 	// The ok result returns true if the value was found.
-	LoadItem(keys Itemable) (item Item, ok bool)
+	LoadItem(keys Itemable) (item Item, ok bool, err error)
 
 	// StoreItem stores the given item, clobbering any existing item with the same key(s).
-	StoreItem(item Itemable)
+	StoreItem(item Itemable) error
 
 	// LoadOrStoreItem returns the existing item, if present, with the same key(s) as the given item.
 	// Otherwise, it stores and returns the given item.
 	// The loaded result is true if the value was loaded, false if stored.
-	LoadOrStoreItem(item Itemable) (actual Item, loaded bool)
+	LoadOrStoreItem(item Itemable) (actual Item, loaded bool, err error)
 
 	// StoreIfAbsent stores the given value if there is no existing value with the same key(s),
 	// returning true if stored.
@@ -99,12 +99,12 @@ type ItemMap interface {
 
 	// StoreItemIfAbsent stores the given item if there is no existing item with the same key(s),
 	// returning true if stored.
-	StoreItemIfAbsent(item Itemable) bool
+	StoreItemIfAbsent(item Itemable) (stored bool, err error)
 
 	// RangeItems calls the given consumer for each stored item.
 	// If the consumer returns false, range eventually stops the iteration.
 	// If a consumer returns false once, it should eventually always return false.
-	RangeItems(consumer func(Item) bool)
+	RangeItems(consumer func(Item) (resume bool)) error
 }
 
 // VersionedItemMap is an ItemMap that includes some compare-and-swap methods using a configured int64 version field.
