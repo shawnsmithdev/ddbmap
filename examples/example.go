@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/shawnsmithdev/ddbmap"
 	"github.com/shawnsmithdev/ddbmap/ddbconv"
+	"github.com/shawnsmithdev/ddbmap/syncmap"
 )
 
 const greeting = `DynamoDB Map (ddbmap) Example Application
@@ -135,7 +136,7 @@ const (
 
 func gameFromItem(item interface{}) game {
 	var b game
-	ddbmap.UnmarshalItem(item.(ddbmap.Item), &b)
+	item.(ddbmap.Item).Unmarshal(&b)
 	return b
 }
 
@@ -221,7 +222,7 @@ func main() {
 	testUser(table.NewItemMap())
 
 	// Test Itemable API using sync.Map
-	testUser(&ddbmap.SyncItemMap{
+	testUser(&syncmap.SyncItemMap{
 		Keyer: userKeyFromItem,
 	})
 

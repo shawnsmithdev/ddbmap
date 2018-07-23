@@ -37,27 +37,13 @@ func marshalItem(x interface{}) (Item, error) {
 	}
 }
 
-// MarshalItem calls dynamodbattribute.MarshalMap on its input and returns the resulting Item.
-// It is different in that it does not return an error, but will panic if given value cannot be marshaled.
-func MarshalItem(x interface{}) Item {
-	item, err := marshalItem(x)
-	forbidErr(err, log.Println)
-	return item
-}
-
-// UnmarshalItem calls dynamodbattribute.UnmarshalMap with given input item and output pointer.
-// It is different in that it does not return an error, but will panic if given value cannot be unmarshaled.
-func UnmarshalItem(item Item, out interface{}) {
-	forbidErr(dynamodbattribute.UnmarshalMap(item, out), log.Println)
-}
-
-// TODO: export?
-type ddbmap struct {
+// DdbMap implements ItemMap as pointer methods, backed by a DynamoDB table.
+type DdbMap struct {
 	TableConfig
 	Client *ddb.DynamoDB
 }
 
-func (d *ddbmap) log(vals ...interface{}) {
+func (d *DdbMap) log(vals ...interface{}) {
 	var logger aws.LoggerFunc
 	if d.Logger == nil {
 		if d.AWSConfig.Logger == nil {
@@ -88,18 +74,18 @@ func logErr(err error, logger aws.LoggerFunc) {
 }
 
 // Only use if documented to panic or when err can only be due to a library bug
-func (d *ddbmap) forbidErr(err error) {
+func (d *DdbMap) forbidErr(err error) {
 	forbidErr(err, d.log)
 }
 
-func (d *ddbmap) debug(vals ...interface{}) {
+func (d *DdbMap) debug(vals ...interface{}) {
 	if d.Debug {
 		d.log(vals...)
 	}
 }
 
 // check table description, optionally using result to set key configuration, returning true if table is active.
-func (d *ddbmap) describeTable(setKeys bool) (active bool, err error) {
+func (d *DdbMap) describeTable(setKeys bool) (active bool, err error) {
 	input := &ddb.DescribeTableInput{TableName: &d.TableName}
 	d.debug("describe table request input:", input)
 	dtReq := d.Client.DescribeTableRequest(input)
@@ -131,7 +117,7 @@ func (d *ddbmap) describeTable(setKeys bool) (active bool, err error) {
 }
 
 // creates a new table
-func (d *ddbmap) createTable() error {
+func (d *DdbMap) createTable() error {
 	schema := []ddb.KeySchemaElement{
 		{AttributeName: &d.HashKeyName, KeyType: ddb.KeyTypeHash},
 	}
@@ -165,7 +151,7 @@ func (d *ddbmap) createTable() error {
 	return err
 }
 
-func (d *ddbmap) delete(item Item) error {
+func (d *DdbMap) delete(item Item) error {
 	input := &ddb.DeleteItemInput{
 		TableName: &d.TableName,
 		Key:       d.ToKeyItem(item),
@@ -176,17 +162,17 @@ func (d *ddbmap) delete(item Item) error {
 	return err
 }
 
-func (d *ddbmap) Delete(key interface{}) {
+func (d *DdbMap) Delete(key interface{}) {
 	item, err := marshalItem(key)
 	d.forbidErr(err)
 	d.forbidErr(d.delete(item))
 }
 
-func (d *ddbmap) DeleteItem(key Itemable) error {
+func (d *DdbMap) DeleteItem(key Itemable) error {
 	return d.delete(key.AsItem())
 }
 
-func (d *ddbmap) load(key Item) (value Item, ok bool, err error) {
+func (d *DdbMap) load(key Item) (value Item, ok bool, err error) {
 	input := &ddb.GetItemInput{
 		TableName:      &d.TableName,
 		ConsistentRead: &d.ReadWithStrongConsistency,
@@ -201,7 +187,7 @@ func (d *ddbmap) load(key Item) (value Item, ok bool, err error) {
 	return nil, false, err
 }
 
-func (d *ddbmap) Load(key interface{}) (value interface{}, ok bool) {
+func (d *DdbMap) Load(key interface{}) (value interface{}, ok bool) {
 	keyItem, err := marshalItem(key)
 	d.forbidErr(err)
 	result, ok, err2 := d.load(keyItem)
@@ -209,11 +195,11 @@ func (d *ddbmap) Load(key interface{}) (value interface{}, ok bool) {
 	return result, ok
 }
 
-func (d *ddbmap) LoadItem(key Itemable) (item Item, ok bool, err error) {
+func (d *DdbMap) LoadItem(key Itemable) (item Item, ok bool, err error) {
 	return d.load(key.AsItem())
 }
 
-func (d *ddbmap) store(item Item, condition *expression.ConditionBuilder) error {
+func (d *DdbMap) store(item Item, condition *expression.ConditionBuilder) error {
 	input := &ddb.PutItemInput{
 		TableName: &d.TableName,
 		Item:      item,
@@ -229,17 +215,17 @@ func (d *ddbmap) store(item Item, condition *expression.ConditionBuilder) error 
 }
 
 // Stores the given value. The key is ignored.
-func (d *ddbmap) Store(_, val interface{}) {
+func (d *DdbMap) Store(_, val interface{}) {
 	valItem, err := marshalItem(val)
 	d.forbidErr(err)
 	d.forbidErr(d.store(valItem, nil))
 }
 
-func (d *ddbmap) StoreItem(val Itemable) error {
+func (d *DdbMap) StoreItem(val Itemable) error {
 	return d.store(val.AsItem(), nil)
 }
 
-func (d *ddbmap) storeItemIfAbsent(item Item) (stored bool, err error) {
+func (d *DdbMap) storeItemIfAbsent(item Item) (stored bool, err error) {
 	noKey := expression.Name(d.HashKeyName).AttributeNotExists()
 	err = d.store(item, &noKey)
 	if err == nil {
@@ -253,7 +239,7 @@ func (d *ddbmap) storeItemIfAbsent(item Item) (stored bool, err error) {
 
 // StoreIfAbsent stores the given value if there is no existing value with the same key(s),
 // returning true if stored.
-func (d *ddbmap) StoreIfAbsent(_, val interface{}) (stored bool) {
+func (d *DdbMap) StoreIfAbsent(_, val interface{}) (stored bool) {
 	valItem, err := marshalItem(val)
 	d.forbidErr(err)
 	stored, err2 := d.storeItemIfAbsent(valItem)
@@ -263,14 +249,14 @@ func (d *ddbmap) StoreIfAbsent(_, val interface{}) (stored bool) {
 
 // StoreItemIfAbsent stores the given item if there is no existing item with the same key(s),
 // returning true if stored.
-func (d *ddbmap) StoreItemIfAbsent(val Itemable) (stored bool, err error) {
+func (d *DdbMap) StoreItemIfAbsent(val Itemable) (stored bool, err error) {
 	return d.storeItemIfAbsent(val.AsItem())
 }
 
 // LoadOrStore returns the value stored under same key as the given value, if any,
 // else stores and returns the given value.
 // The loaded result is true if the value was loaded, false if stored.
-func (d *ddbmap) loadOrStore(item Item) (Item, bool, error) {
+func (d *DdbMap) loadOrStore(item Item) (Item, bool, error) {
 	for {
 		if result, loaded, err := d.load(item); loaded || err != nil {
 			return result, loaded, err
@@ -281,7 +267,7 @@ func (d *ddbmap) loadOrStore(item Item) (Item, bool, error) {
 	}
 }
 
-func (d *ddbmap) LoadOrStore(_, val interface{}) (interface{}, bool) {
+func (d *DdbMap) LoadOrStore(_, val interface{}) (interface{}, bool) {
 	valItem, err := marshalItem(val)
 	d.forbidErr(err)
 	actual, stored, err2 := d.loadOrStore(valItem)
@@ -289,11 +275,11 @@ func (d *ddbmap) LoadOrStore(_, val interface{}) (interface{}, bool) {
 	return actual, stored
 }
 
-func (d *ddbmap) LoadOrStoreItem(val Itemable) (actual Item, loaded bool, err error) {
+func (d *DdbMap) LoadOrStoreItem(val Itemable) (actual Item, loaded bool, err error) {
 	return d.loadOrStore(val.AsItem())
 }
 
-func (d *ddbmap) storeItemIfVersion(item Item, version int64) (bool, error) {
+func (d *DdbMap) storeItemIfVersion(item Item, version int64) (bool, error) {
 	hasVersion := expression.Name(d.VersionName).Equal(expression.Value(version))
 	err := d.store(item.AsItem(), &hasVersion)
 	if ddb.ErrCodeConditionalCheckFailedException == getCode(err) {
@@ -304,7 +290,7 @@ func (d *ddbmap) storeItemIfVersion(item Item, version int64) (bool, error) {
 
 // StoreIfVersion stores the given item if there is an existing item with the same key(s) and the given version.
 // Returns true if the item was stored.
-func (d *ddbmap) StoreIfVersion(val interface{}, version int64) (ok bool) {
+func (d *DdbMap) StoreIfVersion(val interface{}, version int64) (ok bool) {
 	valItem, err := marshalItem(val)
 	d.forbidErr(err)
 	ok, err2 := d.storeItemIfVersion(valItem, version)
@@ -314,11 +300,11 @@ func (d *ddbmap) StoreIfVersion(val interface{}, version int64) (ok bool) {
 
 // StoreItemIfVersion stores the given item if there is an existing item with the same key(s) and the given version.
 // Returns true if the item was stored.
-func (d *ddbmap) StoreItemIfVersion(item Itemable, version int64) (ok bool, err error) {
+func (d *DdbMap) StoreItemIfVersion(item Itemable, version int64) (ok bool, err error) {
 	return d.storeItemIfVersion(item.AsItem(), version)
 }
 
-func (d *ddbmap) rangeSegment(consumer func(Item) bool, workerId int) error {
+func (d *DdbMap) rangeSegment(consumer func(Item) bool, workerId int) error {
 	var segment *int64
 	var totalSegments *int64
 	if d.ScanConcurrency > 1 {
@@ -351,13 +337,13 @@ func (d *ddbmap) rangeSegment(consumer func(Item) bool, workerId int) error {
 	}
 }
 
-func (d *ddbmap) Range(consumer func(_, value interface{}) bool) {
+func (d *DdbMap) Range(consumer func(_, value interface{}) bool) {
 	d.RangeItems(func(item Item) bool {
 		return consumer(nil, item)
 	})
 }
 
-func (d *ddbmap) RangeItems(consumer func(Item) bool) error {
+func (d *DdbMap) RangeItems(consumer func(Item) bool) error {
 	if d.ScanConcurrency > 1 {
 		scanCtx, cancel := context.WithCancel(context.Background())
 		defer cancel()

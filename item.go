@@ -3,6 +3,8 @@ package ddbmap
 import (
 	ddb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/shawnsmithdev/ddbmap/ddbconv"
+	"log"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/dynamodbattribute"
 )
 
 // Item is a type alias for map[string]AttributeValue, the output of dynamodbattribute.MarshalMap.
@@ -13,6 +15,20 @@ type Item map[string]ddb.AttributeValue
 func (item Item) AsItem() Item {
 	return item
 }
+// MarshalItem calls dynamodbattribute.MarshalMap on its input and returns the resulting Item.
+// It is different in that it does not return an error, but will panic if given value cannot be marshaled.
+func MarshalItem(x interface{}) Item {
+	item, err := marshalItem(x)
+	forbidErr(err, log.Println)
+	return item
+}
+
+// UnmarshalItem calls dynamodbattribute.UnmarshalMap with given input item and output pointer.
+// It is different in that it does not return an error, but will panic if given value cannot be unmarshaled.
+func (item Item) Unmarshal(out interface{}) {
+	forbidErr(dynamodbattribute.UnmarshalMap(item, out), log.Println)
+}
+
 
 // GetAsBinary returns the attribute of this item with the given name as a byte slice,
 // which may be empty if the attribute is not present or not binary data.

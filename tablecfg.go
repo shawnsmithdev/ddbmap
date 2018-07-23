@@ -62,7 +62,7 @@ func (tc TableConfig) ToKeyItem(item Item) (result Item) {
 // NewItemMap creates an ItemMap view of a DynamoDB table from a TableConfig.
 // If ScanTableIfNotExists is true and the table does not exist, it will be created.
 func (tc TableConfig) NewItemMap() ItemMap {
-	im := &ddbmap{
+	im := &DdbMap{
 		TableConfig: tc,
 		Client:      ddb.New(tc.AWSConfig),
 	}
