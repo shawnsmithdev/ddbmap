@@ -2,8 +2,8 @@ package syncmap
 
 import (
 	"fmt"
-	"sync"
 	"github.com/shawnsmithdev/ddbmap"
+	"sync"
 )
 
 // FromItemFunc is a function that converts items into something else.
