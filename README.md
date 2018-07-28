@@ -15,20 +15,26 @@ for even simple tasks feels out of place in Go.
 This library ignores some of the features of DynamoDB, such as range key queries and global secondary indexes,
 to provide a simplified API for users that only need a limited subset of DynamoDB's features.
 
+* Get a single record
+* Put a single record
+* Delete a single record
+* Conditional Put If Absent
+* Iterate over all records (serially or in parallel)
+
 # Choice of API
-Generally, one may choose to use the Reflection-based API with very little code required, but be aware that
+Users may choose to use the reflection-based API `ddbmap.Map` with very little code required, but be aware that
 you must either accept capitalized DynamoDB field names, or use dynamo struct tags to rename exported fields.
 This API has the advantage that users can use `*sync.Map` instead of DynamoDB Local for unit testing.
 It has the disadvantage that it cannot tolerate AWS SDK errors, and will panic if they occur. Users are advised to
-either handle panics with `recover`, and/or ensure the SDK will always retry the usual errors like throttling.
+handle panics with `recover`, and at least ensure the SDK will always retry the usual errors like throttling.
 
-As an alternative approach, with some more effort users can implement `ddbmap.Itemable` and handle conversions
-between the Go and DynamoDB type systems directly, without using reflection.
-All methods that use `Itemable` will return an `error` and will not panic. This API also provides a few additional
-conditional operations with no analogue in `ddbmap.Map`.
+As an alternative approach, the `ddbmap.ItemMap` API may be used with some more effort by implementing `ddbmap.Itemable`
+to handle conversions between the Go and DynamoDB type systems directly, without using reflection.
+All methods that take `Itemable` will return an `error` and will not panic. This API also provides a few additional
+conditional operations with no analogue in `ddbmap.Map` / `*sync.Map`.
 
-Doing these kinds of type conversions can be tedious, so a utility library is provide in `ddbmap/ddbconv`
-to help users implement `Itemable`.
+Doing these kinds of type conversions can be tedious and hard to read, so a utility library is provided
+in `ddbmap/ddbconv` to help users implement `Itemable`.
 
 # Usage
 Users getting started with ddbmap might also reference the `ddbmap/examples` package.
