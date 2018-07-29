@@ -40,6 +40,8 @@ in `ddbmap/ddbconv` to help users implement `Itemable`.
 Users getting started with ddbmap might also reference the `ddbmap/examples` package.
 
 ```go
+package main
+
 import (
     "github.com/aws/aws-sdk-go-v2/aws"
     "github.com/aws/aws-sdk-go-v2/aws/external"
@@ -57,26 +59,28 @@ type Person struct {
     Age  int
 }
 
-awsCfg, _ := external.LoadDefaultAWSConfig()
-awsCfg.Retryer = aws.DefaultRetryer{NumMaxRetries: 1000}
+func main() {
+    awsCfg, _ := external.LoadDefaultAWSConfig()
+    awsCfg.Retryer = aws.DefaultRetryer{NumMaxRetries: 1000}
 
-// Assumes table already exists, will auto-discover key names
-tCfg := ddbmap.TableConfig{
-    AWSConfig: awsCfg,
-    TableName: "TestTable",
+    // Assumes table already exists, will auto-discover key names
+    tCfg := ddbmap.TableConfig{
+        AWSConfig: awsCfg,
+        TableName: "TestTable",
+    }
+    people, _ := tCfg.NewItemMap()
+
+    // put
+    bob := Person{PersonKey: {Id: 1}, Name: "Bob", Age: 20}
+    people.Store(bob.PersonKey, bob)
+
+    // get
+    people.Load(bob.PersonKey)
+
+    // iterate
+    people.Range(func(_, person interface{}) bool {
+        fmt.Println(person.(*Person))
+        return true
+    })
 }
-people, _ := tCfg.NewItemMap()
-
-// put
-bob := Person{PersonKey: {Id: 1}, Name: "Bob", Age: 20}
-people.Store(bob.PersonKey, bob)
-
-// get
-bob2 := people.Load(bob.PersonKey)
-
-// iterate
-people.Range(func(_, person interface{}) bool {
-    fmt.Println(person.(Person))
-    return true
-})
 ```

@@ -37,13 +37,16 @@ func marshalItem(x interface{}) (Item, error) {
 	}
 }
 
-// DdbMap implements ItemMap as pointer methods, backed by a DynamoDB table.
-type DdbMap struct {
+// DynamoMap implements ItemMap (with pointer methods), backed by a DynamoDB table.
+// The reflection-based api (ddb.Map) will panic on any unhandled AWS client error.
+// The Itemable api (ddb.ItemMap) returns errors instead and so will not panic.
+type DynamoMap struct {
+	ItemMap
 	TableConfig
 	Client *ddb.DynamoDB
 }
 
-func (d *DdbMap) log(vals ...interface{}) {
+func (d *DynamoMap) log(vals ...interface{}) {
 	var logger aws.LoggerFunc
 	if d.Logger == nil {
 		if d.AWSConfig.Logger == nil {
@@ -74,18 +77,18 @@ func logErr(err error, logger aws.LoggerFunc) {
 }
 
 // Only use if documented to panic or when err can only be due to a library bug
-func (d *DdbMap) forbidErr(err error) {
+func (d *DynamoMap) forbidErr(err error) {
 	forbidErr(err, d.log)
 }
 
-func (d *DdbMap) debug(vals ...interface{}) {
+func (d *DynamoMap) debug(vals ...interface{}) {
 	if d.Debug {
 		d.log(vals...)
 	}
 }
 
 // check table description, optionally using result to set key configuration, returning true if table is active.
-func (d *DdbMap) describeTable(setKeys bool) (active bool, err error) {
+func (d *DynamoMap) describeTable(setKeys bool) (active bool, err error) {
 	input := &ddb.DescribeTableInput{TableName: &d.TableName}
 	d.debug("describe table request input:", input)
 	dtReq := d.Client.DescribeTableRequest(input)
@@ -117,7 +120,7 @@ func (d *DdbMap) describeTable(setKeys bool) (active bool, err error) {
 }
 
 // creates a new table
-func (d *DdbMap) createTable() error {
+func (d *DynamoMap) createTable() error {
 	schema := []ddb.KeySchemaElement{
 		{AttributeName: &d.HashKeyName, KeyType: ddb.KeyTypeHash},
 	}
@@ -151,7 +154,7 @@ func (d *DdbMap) createTable() error {
 	return err
 }
 
-func (d *DdbMap) delete(item Item) error {
+func (d *DynamoMap) delete(item Item) error {
 	input := &ddb.DeleteItemInput{
 		TableName: &d.TableName,
 		Key:       d.ToKeyItem(item),
@@ -162,17 +165,17 @@ func (d *DdbMap) delete(item Item) error {
 	return err
 }
 
-func (d *DdbMap) Delete(key interface{}) {
+func (d *DynamoMap) Delete(key interface{}) {
 	item, err := marshalItem(key)
 	d.forbidErr(err)
 	d.forbidErr(d.delete(item))
 }
 
-func (d *DdbMap) DeleteItem(key Itemable) error {
+func (d *DynamoMap) DeleteItem(key Itemable) error {
 	return d.delete(key.AsItem())
 }
 
-func (d *DdbMap) load(key Item) (value Item, ok bool, err error) {
+func (d *DynamoMap) load(key Item) (value Item, ok bool, err error) {
 	input := &ddb.GetItemInput{
 		TableName:      &d.TableName,
 		ConsistentRead: &d.ReadWithStrongConsistency,
@@ -187,25 +190,41 @@ func (d *DdbMap) load(key Item) (value Item, ok bool, err error) {
 	return nil, false, err
 }
 
-func (d *DdbMap) Load(key interface{}) (value interface{}, ok bool) {
-	keyItem, err := marshalItem(key)
+func (d *DynamoMap) unmarshalItem(item Item) interface{} {
+	if d.Valuer == nil {
+		return item
+	}
+	val := d.Valuer(nil)
+	if len(item) < 1 {
+		return val
+	}
+	err := dynamodbattribute.UnmarshalMap(item, val)
 	d.forbidErr(err)
-	result, ok, err2 := d.load(keyItem)
-	d.forbidErr(err2)
-	return result, ok
+	return d.Valuer(val)
 }
 
-func (d *DdbMap) LoadItem(key Itemable) (item Item, ok bool, err error) {
+func (d *DynamoMap) Load(key interface{}) (value interface{}, ok bool) {
+	keyItem, err := marshalItem(key)
+	d.forbidErr(err)
+	resultItem, ok, err := d.load(keyItem)
+	d.forbidErr(err)
+	return d.unmarshalItem(resultItem), ok
+}
+
+func (d *DynamoMap) LoadItem(key Itemable) (item Item, ok bool, err error) {
 	return d.load(key.AsItem())
 }
 
-func (d *DdbMap) store(item Item, condition *expression.ConditionBuilder) error {
+func (d *DynamoMap) store(item Item, condition *expression.ConditionBuilder) error {
 	input := &ddb.PutItemInput{
 		TableName: &d.TableName,
 		Item:      item,
 	}
 	if condition != nil {
-		condExpr, _ := expression.NewBuilder().WithCondition(*condition).Build()
+		condExpr, err := expression.NewBuilder().WithCondition(*condition).Build()
+		if err != nil {
+			return err
+		}
 		input.ConditionExpression = condExpr.Condition()
 	}
 	d.debug("store request input:", input)
@@ -214,18 +233,18 @@ func (d *DdbMap) store(item Item, condition *expression.ConditionBuilder) error 
 	return err
 }
 
-// Stores the given value. The key is ignored.
-func (d *DdbMap) Store(_, val interface{}) {
+// Stores the given value. The first argument is ignored.
+func (d *DynamoMap) Store(_, val interface{}) {
 	valItem, err := marshalItem(val)
 	d.forbidErr(err)
 	d.forbidErr(d.store(valItem, nil))
 }
 
-func (d *DdbMap) StoreItem(val Itemable) error {
+func (d *DynamoMap) StoreItem(val Itemable) error {
 	return d.store(val.AsItem(), nil)
 }
 
-func (d *DdbMap) storeItemIfAbsent(item Item) (stored bool, err error) {
+func (d *DynamoMap) storeItemIfAbsent(item Item) (stored bool, err error) {
 	noKey := expression.Name(d.HashKeyName).AttributeNotExists()
 	err = d.store(item, &noKey)
 	if err == nil {
@@ -238,8 +257,8 @@ func (d *DdbMap) storeItemIfAbsent(item Item) (stored bool, err error) {
 }
 
 // StoreIfAbsent stores the given value if there is no existing value with the same key(s),
-// returning true if stored.
-func (d *DdbMap) StoreIfAbsent(_, val interface{}) (stored bool) {
+// returning true if stored. The first argument is ignored.
+func (d *DynamoMap) StoreIfAbsent(_, val interface{}) (stored bool) {
 	valItem, err := marshalItem(val)
 	d.forbidErr(err)
 	stored, err2 := d.storeItemIfAbsent(valItem)
@@ -249,14 +268,14 @@ func (d *DdbMap) StoreIfAbsent(_, val interface{}) (stored bool) {
 
 // StoreItemIfAbsent stores the given item if there is no existing item with the same key(s),
 // returning true if stored.
-func (d *DdbMap) StoreItemIfAbsent(val Itemable) (stored bool, err error) {
+func (d *DynamoMap) StoreItemIfAbsent(val Itemable) (stored bool, err error) {
 	return d.storeItemIfAbsent(val.AsItem())
 }
 
 // LoadOrStore returns the value stored under same key as the given value, if any,
 // else stores and returns the given value.
 // The loaded result is true if the value was loaded, false if stored.
-func (d *DdbMap) loadOrStore(item Item) (Item, bool, error) {
+func (d *DynamoMap) loadOrStore(item Item) (Item, bool, error) {
 	for {
 		if result, loaded, err := d.load(item); loaded || err != nil {
 			return result, loaded, err
@@ -267,7 +286,7 @@ func (d *DdbMap) loadOrStore(item Item) (Item, bool, error) {
 	}
 }
 
-func (d *DdbMap) LoadOrStore(_, val interface{}) (interface{}, bool) {
+func (d *DynamoMap) LoadOrStore(_, val interface{}) (interface{}, bool) {
 	valItem, err := marshalItem(val)
 	d.forbidErr(err)
 	actual, stored, err2 := d.loadOrStore(valItem)
@@ -275,11 +294,11 @@ func (d *DdbMap) LoadOrStore(_, val interface{}) (interface{}, bool) {
 	return actual, stored
 }
 
-func (d *DdbMap) LoadOrStoreItem(val Itemable) (actual Item, loaded bool, err error) {
+func (d *DynamoMap) LoadOrStoreItem(val Itemable) (actual Item, loaded bool, err error) {
 	return d.loadOrStore(val.AsItem())
 }
 
-func (d *DdbMap) storeItemIfVersion(item Item, version int64) (bool, error) {
+func (d *DynamoMap) storeItemIfVersion(item Item, version int64) (bool, error) {
 	hasVersion := expression.Name(d.VersionName).Equal(expression.Value(version))
 	err := d.store(item.AsItem(), &hasVersion)
 	if ddb.ErrCodeConditionalCheckFailedException == getCode(err) {
@@ -290,7 +309,7 @@ func (d *DdbMap) storeItemIfVersion(item Item, version int64) (bool, error) {
 
 // StoreIfVersion stores the given item if there is an existing item with the same key(s) and the given version.
 // Returns true if the item was stored.
-func (d *DdbMap) StoreIfVersion(val interface{}, version int64) (ok bool) {
+func (d *DynamoMap) StoreIfVersion(val interface{}, version int64) (ok bool) {
 	valItem, err := marshalItem(val)
 	d.forbidErr(err)
 	ok, err2 := d.storeItemIfVersion(valItem, version)
@@ -300,11 +319,11 @@ func (d *DdbMap) StoreIfVersion(val interface{}, version int64) (ok bool) {
 
 // StoreItemIfVersion stores the given item if there is an existing item with the same key(s) and the given version.
 // Returns true if the item was stored.
-func (d *DdbMap) StoreItemIfVersion(item Itemable, version int64) (ok bool, err error) {
+func (d *DynamoMap) StoreItemIfVersion(item Itemable, version int64) (ok bool, err error) {
 	return d.storeItemIfVersion(item.AsItem(), version)
 }
 
-func (d *DdbMap) rangeSegment(consumer func(Item) bool, workerId int) error {
+func (d *DynamoMap) rangeSegment(consumer func(Item) bool, workerId int) error {
 	var segment *int64
 	var totalSegments *int64
 	if d.ScanConcurrency > 1 {
@@ -337,52 +356,57 @@ func (d *DdbMap) rangeSegment(consumer func(Item) bool, workerId int) error {
 	}
 }
 
-func (d *DdbMap) Range(consumer func(_, value interface{}) bool) {
+func (d *DynamoMap) Range(consumer func(_, value interface{}) bool) {
 	d.RangeItems(func(item Item) bool {
-		return consumer(nil, item)
+		return consumer(nil, d.unmarshalItem(item))
 	})
 }
 
-func (d *DdbMap) RangeItems(consumer func(Item) bool) error {
-	if d.ScanConcurrency > 1 {
-		scanCtx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		workerErrs := make(chan error)
-		var errOnce sync.Once
-		var wg sync.WaitGroup
-		for i := int(0); i < d.ScanConcurrency; i++ {
-			wg.Add(1)
-			go func(workerId int) {
-				defer wg.Done()
-				d.debug("starting scan worker: ", workerId)
-				awareConsumer := func(items Item) bool {
-					getMore := consumer(items)
-					if !getMore {
-						d.debug("scan consumer stopped iteration early, worker: ", workerId)
-						cancel()
-					}
-					return getMore && scanCtx.Err() == nil
-				}
-				if err := d.rangeSegment(awareConsumer, workerId); err != nil {
-					d.debug("scan worker had error:", err, ", worker:", workerId)
-					errOnce.Do(func() { workerErrs <- err })
-				} else {
-					d.debug("scan worker done, worker:", workerId)
-				}
-			}(i)
-		}
-		go func() {
-			wg.Wait()
-			if scanCtx.Err() == nil {
-				close(workerErrs)
-			}
-		}()
-		select {
-		case <-scanCtx.Done():
-			return nil
-		case err := <-workerErrs:
-			return err
-		}
+func (d *DynamoMap) RangeItems(consumer func(Item) bool) error {
+	// serial
+	if d.ScanConcurrency <= 1 {
+		return d.rangeSegment(consumer, 0)
 	}
-	return d.rangeSegment(consumer, 0)
+
+	// parallel
+	var errOnce sync.Once
+	var wg sync.WaitGroup
+	workerErrs := make(chan error)
+	scanCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	for i := int(0); i < d.ScanConcurrency; i++ {
+		wg.Add(1)
+		go func(workerId int) {
+			defer wg.Done()
+			awareConsumer := func(items Item) bool {
+				getMore := consumer(items)
+				if !getMore {
+					d.debug("scan consumer stopped iteration early, worker: ", workerId)
+					cancel()
+				}
+				return getMore && scanCtx.Err() == nil
+			}
+			d.debug("starting scan worker: ", workerId)
+			if err := d.rangeSegment(awareConsumer, workerId); err != nil {
+				d.debug("scan worker had error:", err, ", worker:", workerId)
+				errOnce.Do(func() { workerErrs <- err })
+			} else {
+				d.debug("scan worker done, worker:", workerId)
+			}
+		}(i)
+	}
+
+	go func() {
+		wg.Wait()
+		if scanCtx.Err() == nil {
+			close(workerErrs)
+		}
+	}()
+	select {
+	case <-scanCtx.Done():
+		return nil
+	case err := <-workerErrs:
+		return err
+	}
 }

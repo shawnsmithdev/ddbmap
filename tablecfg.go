@@ -3,7 +3,6 @@ package ddbmap
 import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ddb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"log"
 )
 
 // TableConfig holds details about a specific DynamoDB table, such as its name and key names and types.
@@ -21,7 +20,7 @@ type TableConfig struct {
 	RangeKeyName string
 	// The type of the range key attribute, if any. Used only if creating a table.
 	RangeKeyType ddb.ScalarAttributeType
-	// The name of the version field, if any. Used only if making conditional calls.
+	// The name of the numeric version field, if any. Used only for those conditional methods that use versions.
 	VersionName string
 	// The concurrency used in table scans (Range calls). If less than 2, scan is done serially.
 	ScanConcurrency int
@@ -39,6 +38,12 @@ type TableConfig struct {
 	Debug bool
 	// Logger is the logger used by this library for debug logging. The AWS config logger is used if nil.
 	Logger aws.Logger
+	// Valuer can be used to change the type returned by Load, LoadOrStore, and Range.
+	// These methods return an Item if Valuer is nil.
+	// Valuer should return a new pointer of the desired type if its argument is nil.
+	// If its argument is not nil, it is a pointer of the same type,
+	// and Valuer should perform a type assertion and return the dereferenced value.
+	Valuer func(interface{}) interface{}
 }
 
 func (tc TableConfig) ranged() bool {
@@ -61,18 +66,22 @@ func (tc TableConfig) ToKeyItem(item Item) (result Item) {
 
 // NewItemMap creates an ItemMap view of a DynamoDB table from a TableConfig.
 // If ScanTableIfNotExists is true and the table does not exist, it will be created.
-func (tc TableConfig) NewItemMap() ItemMap {
-	im := &DdbMap{
+func (tc TableConfig) NewItemMap() (ItemMap, error) {
+	im := &DynamoMap{
 		TableConfig: tc,
 		Client:      ddb.New(tc.AWSConfig),
 	}
 	if im.CreateTableIfNotExists {
 		if ok, err := im.describeTable(false); !ok {
-			forbidErr(err, log.Println)
-			forbidErr(im.createTable(), log.Println)
+			if err != nil {
+				return nil, err
+			}
+			if err = im.createTable(); err != nil {
+				return nil, err
+			}
 		}
 	} else if "" == im.HashKeyName {
 		im.describeTable(true)
 	}
-	return im
+	return im, nil
 }
