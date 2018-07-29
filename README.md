@@ -59,6 +59,14 @@ type Person struct {
     Age  int
 }
 
+// A Valuer func enables the library to return Person instead of Item
+func personValuer(arg interface{}) interface{} {
+    if arg == nil {
+        return &Person{}
+    }
+    return *(arg.(*Person))
+}
+
 func main() {
     awsCfg, _ := external.LoadDefaultAWSConfig()
     awsCfg.Retryer = aws.DefaultRetryer{NumMaxRetries: 1000}
@@ -67,19 +75,23 @@ func main() {
     tCfg := ddbmap.TableConfig{
         AWSConfig: awsCfg,
         TableName: "TestTable",
+        Valuer: personValuer,
     }
     people, _ := tCfg.NewItemMap()
 
     // put
-    bob := Person{PersonKey: {Id: 1}, Name: "Bob", Age: 20}
-    people.Store(bob.PersonKey, bob)
+    p1 := Person{PersonKey: {Id: 1}, Name: "Bob", Age: 20}
+    people.Store(p1.PersonKey, p1)
 
     // get
-    people.Load(bob.PersonKey)
+    p2, ok := people.Load(p2.PersonKey)
+    if ok {
+        fmt.Println(p2.(Person))
+    }
 
     // iterate
-    people.Range(func(_, person interface{}) bool {
-        fmt.Println(person.(*Person))
+    people.Range(func(_, p3 interface{}) bool {
+        fmt.Println(p3.(Person))
         return true
     })
 }
