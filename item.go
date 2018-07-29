@@ -2,8 +2,8 @@ package ddbmap
 
 import (
 	ddb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
-		"github.com/shawnsmithdev/ddbmap/ddbconv"
-	)
+	"github.com/shawnsmithdev/ddbmap/ddbconv"
+)
 
 // Item is a type alias for map[string]AttributeValue, the output of dynamodbattribute.MarshalMap.
 // This represents a single row in a DynamoDB table or a 'Map' in the DynamoDB type system.
@@ -113,4 +113,3 @@ type ItemMap interface {
 	// Returns true if the item was stored.
 	StoreItemIfVersion(item Itemable, version int64) (ok bool, err error)
 }
-

@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/dynamodbattribute"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/expression"
 	"log"
+	"reflect"
 	"sync"
 )
 
@@ -41,7 +42,6 @@ func marshalItem(x interface{}) (Item, error) {
 // The reflection-based api (ddb.Map) will panic on any unhandled AWS client error.
 // The Itemable api (ddb.ItemMap) returns errors instead and so will not panic.
 type DynamoMap struct {
-	ItemMap
 	TableConfig
 	Client *ddb.DynamoDB
 }
@@ -191,16 +191,16 @@ func (d *DynamoMap) load(key Item) (value Item, ok bool, err error) {
 }
 
 func (d *DynamoMap) unmarshalItem(item Item) interface{} {
-	if d.Valuer == nil {
+	if d.Value == nil {
 		return item
 	}
-	val := d.Valuer(nil)
+	val := reflect.New(reflect.TypeOf(d.Value)).Interface()
 	if len(item) < 1 {
 		return val
 	}
 	err := dynamodbattribute.UnmarshalMap(item, val)
 	d.forbidErr(err)
-	return d.Valuer(val)
+	return reflect.ValueOf(val).Elem().Interface()
 }
 
 func (d *DynamoMap) Load(key interface{}) (value interface{}, ok bool) {

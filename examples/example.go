@@ -177,13 +177,6 @@ func testGameMap(itemMap ddbmap.Map) {
 	})
 }
 
-func gameValuer(input interface{}) interface{} {
-	if input == nil {
-		return &game{}
-	}
-	return *(input.(*game))
-}
-
 // Example of using the reflection-based map methods.
 func buildDynamoTestGame(cfg aws.Config, libDebug bool) ddbmap.ItemMap {
 	// Configure the map
@@ -194,8 +187,8 @@ func buildDynamoTestGame(cfg aws.Config, libDebug bool) ddbmap.ItemMap {
 		HashKeyType:               dynamodb.ScalarAttributeTypeN,
 		CreateTableIfNotExists:    true,
 		ReadWithStrongConsistency: true,
-		Debug:  libDebug,
-		Valuer: gameValuer,
+		Debug: libDebug,
+		Value: game{},
 	}
 
 	// Create and test the map

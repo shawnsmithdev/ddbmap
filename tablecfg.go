@@ -38,12 +38,9 @@ type TableConfig struct {
 	Debug bool
 	// Logger is the logger used by this library for debug logging. The AWS config logger is used if nil.
 	Logger aws.Logger
-	// Valuer can be used to change the type returned by Load, LoadOrStore, and Range.
-	// These methods return an Item if Valuer is nil.
-	// Valuer should return a new pointer of the desired type if its argument is nil.
-	// If its argument is not nil, it is a pointer of the same type,
-	// and Valuer should perform a type assertion and return the dereferenced value.
-	Valuer func(interface{}) interface{}
+	// Value can be used to change the type returned by Load, LoadOrStore, and Range.
+	// These methods return an Item if Value is nil, or a value of Value's type if not nil.
+	Value interface{}
 }
 
 func (tc TableConfig) ranged() bool {
