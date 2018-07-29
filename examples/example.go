@@ -160,8 +160,8 @@ func testGameMap(itemMap ddbmap.Map) {
 	if !ok {
 		panic("not ok")
 	}
-	if valAsGame, asGameOk := val.(game); !asGameOk || valAsGame.Name != "bob's game" {
-		log.Panicf("not bob's game (%T)", val)
+	if val.(game).Name != "bob's game" {
+		panic("not bob's game")
 	}
 
 	_, missingOk := itemMap.Load(gameKey{Id: 42})
@@ -170,8 +170,8 @@ func testGameMap(itemMap ddbmap.Map) {
 	}
 	// Test ranging across all stored items
 	itemMap.Range(func(_, val interface{}) (getMore bool) {
-		if valAsGame, asGameOk := val.(game); !asGameOk || valAsGame.Name != "bob's game" {
-			log.Panicf("not bob's game (%T)", val)
+		if val.(game).Name != "bob's game" {
+			panic("not bob's game")
 		}
 		return true
 	})

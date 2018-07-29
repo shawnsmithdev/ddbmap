@@ -109,6 +109,7 @@ type ItemMap interface {
 	// StoreIfVersion stores the given item if there is an existing item with the same key(s) and the given version.
 	// Returns true if the item was stored.
 	StoreIfVersion(val interface{}, version int64) (ok bool)
+
 	// StoreItemIfVersion stores the given item if there is an existing item with the same key(s) and the given version.
 	// Returns true if the item was stored.
 	StoreItemIfVersion(item Itemable, version int64) (ok bool, err error)
