@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ddb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/dynamodbattribute"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/expression"
 	"golang.org/x/sync/errgroup"
 	"log"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb/dynamodbattribute"
-	)
+)
 
 var (
 	// Indicates that a range operation consumer caused an early termination by returning false, do not return it.

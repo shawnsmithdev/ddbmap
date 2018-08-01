@@ -5,9 +5,9 @@ package ddbconv
 import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ddb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
-		"strconv"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/dynamodbattribute"
-	)
+	"strconv"
+)
 
 func forbidErr(err error) {
 	if err != nil {
