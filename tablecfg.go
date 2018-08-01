@@ -8,9 +8,6 @@ import (
 
 // TableConfig holds details about a specific DynamoDB table, such as its name and key names and types.
 type TableConfig struct {
-	// The AWS configuration to use.
-	// Changing the aws config after creating the table config may result in undefined behavior, so don't.
-	// AWSConfig aws.Config
 	// The name of the table
 	TableName string
 	// The name of the hash key attribute.
