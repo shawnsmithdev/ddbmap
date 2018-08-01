@@ -3,13 +3,14 @@ package ddbmap
 import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ddb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"log"
 )
 
 // TableConfig holds details about a specific DynamoDB table, such as its name and key names and types.
 type TableConfig struct {
 	// The AWS configuration to use.
 	// Changing the aws config after creating the table config may result in undefined behavior, so don't.
-	AWSConfig aws.Config
+	// AWSConfig aws.Config
 	// The name of the table
 	TableName string
 	// The name of the hash key attribute.
@@ -34,13 +35,15 @@ type TableConfig struct {
 	CreateTableReadCapacity int
 	// CreateTableReadCapacity is the write capacity of the new table, if created. 1 is used if less than 1.
 	CreateTableWriteCapacity int
-	// If true, debug logging in this library is enabled
+	// If true, debug logging in this library is enabled.
 	Debug bool
-	// Logger is the logger used by this library for debug logging. The AWS config logger is used if nil.
+	// Logger is the logger used by this library for debug and error logging.
 	Logger aws.Logger
-	// Value can be used to change the type returned by Load, LoadOrStore, and Range.
-	// These methods return an Item if Value is nil, or a value of Value's type if not nil.
-	Value interface{}
+	// ValueUnmarshaller can be used to change what is returned by Load, LoadOrStore, and Range.
+	// These methods return an Item if ValueUnmarshaller is nil.
+	// If ValueUnmarshaller is not nil, the item that would have been returned is given to it,
+	// and the results are returned instead.
+	ValueUnmarshaller ItemUnmarshaller
 }
 
 func (tc TableConfig) ranged() bool {
@@ -63,10 +66,19 @@ func (tc TableConfig) ToKeyItem(item Item) (result Item) {
 
 // NewItemMap creates an ItemMap view of a DynamoDB table from a TableConfig.
 // If ScanTableIfNotExists is true and the table does not exist, it will be created.
-func (tc TableConfig) NewItemMap() (ItemMap, error) {
+// If ScanTableIfNotExists is false and the key names are not set, they will be looked up.
+// If the logger has not been configured, either the AWS config's logger (if present) or stdout will be used.
+func (tc TableConfig) NewItemMap(cfg aws.Config) (ItemMap, error) {
+	if tc.Logger == nil {
+		if cfg.Logger == nil {
+			tc.Logger = aws.LoggerFunc(log.Println)
+		} else {
+			tc.Logger = cfg.Logger
+		}
+	}
 	im := &DynamoMap{
 		TableConfig: tc,
-		Client:      ddb.New(tc.AWSConfig),
+		Client:      ddb.New(cfg),
 	}
 	if im.CreateTableIfNotExists {
 		if ok, err := im.describeTable(false); !ok {

@@ -21,6 +21,22 @@ to provide a simplified API for users that only need a limited subset of DynamoD
 * Conditional Put If Absent
 * Iterate over all records (serially or in parallel)
 
+# Design Choices
+This library has a few design choices you should be aware of before using it, and especially before submitting
+any feature request that may be at odds with these choices.
+
+Numerical values can be used as either `int` or `dynamodbattribute.Number`.
+Unlike the AWS SDK, `int64` is not used, as 32-bit systems are not supported by this library.
+Any other use cases, like floating point or large precision, can be handled with `Number`.
+Some helpers for using `Number` are available in `dynamodbattribute` and `ddbmap/ddbconv`.
+
+If users wishes to do
+[conditional updates](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/WorkingWithItems.html#WorkingWithItems.ConditionalUpdate),
+they should define a numerical version field and configure `VersionName` in their `TableConfig` to the name of that
+field. Dynamo can support conditional operations on any field, but the potential for losing updates is too high if
+update conditions depend on fields that do not obviously need to be changed on update. An explicit version field avoids
+an entire class of potential concurrent modification bugs, so that is all this library supports.
+
 # Choice of API
 Users may choose to use the reflection-based API `ddbmap.Map` with very little code required, but be aware that
 you must either accept capitalized DynamoDB field names, or use dynamo struct tags to rename exported fields.

@@ -14,7 +14,7 @@ type Map interface {
 	// The loaded result is true if the value was loaded, false if stored.
 	LoadOrStore(key, value interface{}) (actual interface{}, loaded bool)
 	// Range iterates over the map and applies the given function to every key and value.
-	// Range stops iteration if the given function returns true.
+	// Range stops iteration if the given function returns false.
 	Range(f func(key, value interface{}) bool)
 	// Store stores the given value under the given key.
 	Store(key, value interface{})

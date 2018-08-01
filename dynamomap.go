@@ -3,40 +3,19 @@ package ddbmap
 
 import (
 	"context"
+	"fmt"
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/aws/awserr"
 	ddb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb/dynamodbattribute"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/expression"
+	"golang.org/x/sync/errgroup"
 	"log"
-	"reflect"
-	"sync"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/dynamodbattribute"
+	)
+
+var (
+	// Indicates that a range operation consumer caused an early termination by returning false, do not return it.
+	earlyTermination = fmt.Errorf("ddbmap early termination")
 )
-
-func getCode(err error) string {
-	if aerr, ok := err.(awserr.Error); ok {
-		return aerr.Code()
-	}
-	return ""
-}
-
-// Only use if documented to panic or when err can only be due to a library bug
-func forbidErr(err error, logger aws.LoggerFunc) {
-	if err != nil {
-		logErr(err, logger)
-		logger("unhandled error, will now panic")
-		panic(err)
-	}
-}
-
-func marshalItem(x interface{}) (Item, error) {
-	switch xAsType := x.(type) {
-	case Itemable:
-		return xAsType.AsItem(), nil
-	default:
-		return dynamodbattribute.MarshalMap(x)
-	}
-}
 
 // DynamoMap implements ItemMap (with pointer methods), backed by a DynamoDB table.
 // The reflection-based api (ddb.Map) will panic on any unhandled AWS client error.
@@ -47,32 +26,11 @@ type DynamoMap struct {
 }
 
 func (d *DynamoMap) log(vals ...interface{}) {
-	var logger aws.LoggerFunc
+	toLog := append([]interface{}{"(ddbmap)"}, vals...)
 	if d.Logger == nil {
-		if d.AWSConfig.Logger == nil {
-			logger = log.Println
-		} else {
-			logger = d.AWSConfig.Logger.Log
-		}
+		log.Println(toLog...)
 	} else {
-		logger = d.Logger.Log
-	}
-	logger(append([]interface{}{"(ddbmap)"}, vals...)...)
-}
-
-func logErr(err error, logger aws.LoggerFunc) {
-	e := err
-	for {
-		logger(e.Error())
-		if aerr, ok := e.(awserr.Error); ok {
-			if aerr.OrigErr() == nil {
-				return
-			}
-			logger("caused by:")
-			e = aerr.OrigErr()
-		} else {
-			return
-		}
+		d.Logger.Log(toLog...)
 	}
 }
 
@@ -87,6 +45,29 @@ func (d *DynamoMap) debug(vals ...interface{}) {
 	}
 }
 
+// MarshalItem will marshal a value into an Item using dynamodbattribute.MarshalMap,
+// unless this can be avoided because the value is already an Item or is Itemable.
+func MarshalItem(val interface{}) (Item, error) {
+	switch valAsType := val.(type) {
+	case Item:
+		return valAsType, nil
+	case Itemable:
+		return valAsType.AsItem(), nil
+	default:
+		return dynamodbattribute.MarshalMap(val)
+	}
+}
+
+func (d *DynamoMap) unmarshalItem(item Item) interface{} {
+	// do not unmarshal if user has not configured an unmarshaller
+	if d.ValueUnmarshaller == nil {
+		return item
+	}
+	result, err := d.ValueUnmarshaller(item)
+	d.forbidErr(err)
+	return result
+}
+
 // check table description, optionally using result to set key configuration, returning true if table is active.
 func (d *DynamoMap) describeTable(setKeys bool) (active bool, err error) {
 	input := &ddb.DescribeTableInput{TableName: &d.TableName}
@@ -95,7 +76,7 @@ func (d *DynamoMap) describeTable(setKeys bool) (active bool, err error) {
 	dtResp, err := dtReq.Send()
 	d.debug("describe table response:", dtResp, ", error:", err)
 	if err != nil {
-		if ddb.ErrCodeResourceNotFoundException == getCode(err) {
+		if ddb.ErrCodeResourceNotFoundException == getErrCode(err) {
 			return false, nil
 		}
 		return false, err
@@ -165,14 +146,14 @@ func (d *DynamoMap) delete(item Item) error {
 	return err
 }
 
-func (d *DynamoMap) Delete(key interface{}) {
-	item, err := marshalItem(key)
-	d.forbidErr(err)
-	d.forbidErr(d.delete(item))
-}
-
 func (d *DynamoMap) DeleteItem(key Itemable) error {
 	return d.delete(key.AsItem())
+}
+
+func (d *DynamoMap) Delete(key interface{}) {
+	item, err := MarshalItem(key)
+	d.forbidErr(err)
+	d.forbidErr(d.delete(item))
 }
 
 func (d *DynamoMap) load(key Item) (value Item, ok bool, err error) {
@@ -190,29 +171,16 @@ func (d *DynamoMap) load(key Item) (value Item, ok bool, err error) {
 	return nil, false, err
 }
 
-func (d *DynamoMap) unmarshalItem(item Item) interface{} {
-	if d.Value == nil {
-		return item
-	}
-	val := reflect.New(reflect.TypeOf(d.Value)).Interface()
-	if len(item) < 1 {
-		return val
-	}
-	err := dynamodbattribute.UnmarshalMap(item, val)
-	d.forbidErr(err)
-	return reflect.ValueOf(val).Elem().Interface()
+func (d *DynamoMap) LoadItem(key Itemable) (item Item, ok bool, err error) {
+	return d.load(key.AsItem())
 }
 
 func (d *DynamoMap) Load(key interface{}) (value interface{}, ok bool) {
-	keyItem, err := marshalItem(key)
+	keyItem, err := MarshalItem(key)
 	d.forbidErr(err)
 	resultItem, ok, err := d.load(keyItem)
 	d.forbidErr(err)
 	return d.unmarshalItem(resultItem), ok
-}
-
-func (d *DynamoMap) LoadItem(key Itemable) (item Item, ok bool, err error) {
-	return d.load(key.AsItem())
 }
 
 func (d *DynamoMap) store(item Item, condition *expression.ConditionBuilder) error {
@@ -233,43 +201,42 @@ func (d *DynamoMap) store(item Item, condition *expression.ConditionBuilder) err
 	return err
 }
 
-// Stores the given value. The first argument is ignored.
-func (d *DynamoMap) Store(_, val interface{}) {
-	valItem, err := marshalItem(val)
-	d.forbidErr(err)
-	d.forbidErr(d.store(valItem, nil))
-}
-
 func (d *DynamoMap) StoreItem(val Itemable) error {
 	return d.store(val.AsItem(), nil)
 }
 
+// Stores the given value. The first argument is ignored.
+func (d *DynamoMap) Store(_, val interface{}) {
+	valItem, err := MarshalItem(val)
+	d.forbidErr(err)
+	d.forbidErr(d.store(valItem, nil))
+}
 func (d *DynamoMap) storeItemIfAbsent(item Item) (stored bool, err error) {
 	noKey := expression.Name(d.HashKeyName).AttributeNotExists()
 	err = d.store(item, &noKey)
 	if err == nil {
 		return true, nil
 	}
-	if ddb.ErrCodeConditionalCheckFailedException != getCode(err) {
+	if ddb.ErrCodeConditionalCheckFailedException != getErrCode(err) {
 		return false, err
 	}
 	return false, nil
-}
-
-// StoreIfAbsent stores the given value if there is no existing value with the same key(s),
-// returning true if stored. The first argument is ignored.
-func (d *DynamoMap) StoreIfAbsent(_, val interface{}) (stored bool) {
-	valItem, err := marshalItem(val)
-	d.forbidErr(err)
-	stored, err2 := d.storeItemIfAbsent(valItem)
-	d.forbidErr(err2)
-	return stored
 }
 
 // StoreItemIfAbsent stores the given item if there is no existing item with the same key(s),
 // returning true if stored.
 func (d *DynamoMap) StoreItemIfAbsent(val Itemable) (stored bool, err error) {
 	return d.storeItemIfAbsent(val.AsItem())
+}
+
+// StoreIfAbsent stores the given value if there is no existing value with the same key(s),
+// returning true if stored. The first argument is ignored.
+func (d *DynamoMap) StoreIfAbsent(_, val interface{}) (stored bool) {
+	valItem, err := MarshalItem(val)
+	d.forbidErr(err)
+	stored, err2 := d.storeItemIfAbsent(valItem)
+	d.forbidErr(err2)
+	return stored
 }
 
 // LoadOrStore returns the value stored under same key as the given value, if any,
@@ -286,35 +253,25 @@ func (d *DynamoMap) loadOrStore(item Item) (Item, bool, error) {
 	}
 }
 
+func (d *DynamoMap) LoadOrStoreItem(val Itemable) (actual Item, loaded bool, err error) {
+	return d.loadOrStore(val.AsItem())
+}
+
 func (d *DynamoMap) LoadOrStore(_, val interface{}) (interface{}, bool) {
-	valItem, err := marshalItem(val)
+	valItem, err := MarshalItem(val)
 	d.forbidErr(err)
 	actual, stored, err2 := d.loadOrStore(valItem)
 	d.forbidErr(err2)
 	return actual, stored
 }
 
-func (d *DynamoMap) LoadOrStoreItem(val Itemable) (actual Item, loaded bool, err error) {
-	return d.loadOrStore(val.AsItem())
-}
-
 func (d *DynamoMap) storeItemIfVersion(item Item, version int64) (bool, error) {
 	hasVersion := expression.Name(d.VersionName).Equal(expression.Value(version))
 	err := d.store(item.AsItem(), &hasVersion)
-	if ddb.ErrCodeConditionalCheckFailedException == getCode(err) {
+	if ddb.ErrCodeConditionalCheckFailedException == getErrCode(err) {
 		return false, nil
 	}
 	return err == nil, err
-}
-
-// StoreIfVersion stores the given item if there is an existing item with the same key(s) and the given version.
-// Returns true if the item was stored.
-func (d *DynamoMap) StoreIfVersion(val interface{}, version int64) (ok bool) {
-	valItem, err := marshalItem(val)
-	d.forbidErr(err)
-	ok, err2 := d.storeItemIfVersion(valItem, version)
-	d.forbidErr(err2)
-	return ok
 }
 
 // StoreItemIfVersion stores the given item if there is an existing item with the same key(s) and the given version.
@@ -323,7 +280,18 @@ func (d *DynamoMap) StoreItemIfVersion(item Itemable, version int64) (ok bool, e
 	return d.storeItemIfVersion(item.AsItem(), version)
 }
 
-func (d *DynamoMap) rangeSegment(consumer func(Item) bool, workerId int) error {
+// StoreIfVersion stores the given item if there is an existing item with the same key(s) and the given version.
+// Returns true if the item was stored.
+func (d *DynamoMap) StoreIfVersion(val interface{}, version int64) (ok bool) {
+	valItem, err := MarshalItem(val)
+	d.forbidErr(err)
+	ok, err2 := d.storeItemIfVersion(valItem, version)
+	d.forbidErr(err2)
+	return ok
+}
+
+func (d *DynamoMap) rangeSegment(ctx context.Context, consumer func(Item) bool, workerId int) error {
+	d.debug("starting scan worker: ", workerId)
 	var segment *int64
 	var totalSegments *int64
 	if d.ScanConcurrency > 1 {
@@ -338,75 +306,59 @@ func (d *DynamoMap) rangeSegment(consumer func(Item) bool, workerId int) error {
 		TotalSegments:  totalSegments,
 	}
 	for {
+		// check for errors or early termination on other workers
+		if ctx != nil {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
+		// fetch a page
 		d.debug("scan request input:", input, ", worker:", workerId)
 		resp, err := d.Client.ScanRequest(input).Send()
 		d.debug("scan response:", resp, ", worker:", workerId, ", error:", err)
 		if err != nil {
+			d.debug("scan worker had error:", err, ", worker:", workerId)
 			return err
 		}
+		// run consumer on each record in page
 		for _, item := range resp.Items {
 			if !consumer(item) {
-				return nil
+				d.debug("scan worker received early termination, worker:", workerId)
+				return earlyTermination
 			}
 		}
+		// check for next page
 		if resp.LastEvaluatedKey == nil {
+			d.debug("scan worker done, worker:", workerId)
 			return nil
 		}
 		input.ExclusiveStartKey = resp.LastEvaluatedKey
 	}
 }
 
+func (d *DynamoMap) RangeItems(consumer func(Item) bool) error {
+	// serial
+	if d.ScanConcurrency <= 1 {
+		return d.rangeSegment(nil, consumer, 0)
+	}
+
+	// parallel
+	eg, ctx := errgroup.WithContext(context.Background())
+	for i := int(0); i < d.ScanConcurrency; i++ {
+		workerId := i
+		eg.Go(func() error {
+			return d.rangeSegment(ctx, consumer, workerId)
+		})
+	}
+	err := eg.Wait()
+	if err == earlyTermination {
+		return nil
+	}
+	return err
+}
+
 func (d *DynamoMap) Range(consumer func(_, value interface{}) bool) {
 	d.RangeItems(func(item Item) bool {
 		return consumer(nil, d.unmarshalItem(item))
 	})
-}
-
-func (d *DynamoMap) RangeItems(consumer func(Item) bool) error {
-	// serial
-	if d.ScanConcurrency <= 1 {
-		return d.rangeSegment(consumer, 0)
-	}
-
-	// parallel
-	var errOnce sync.Once
-	var wg sync.WaitGroup
-	workerErrs := make(chan error)
-	scanCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	for i := int(0); i < d.ScanConcurrency; i++ {
-		wg.Add(1)
-		go func(workerId int) {
-			defer wg.Done()
-			awareConsumer := func(items Item) bool {
-				getMore := consumer(items)
-				if !getMore {
-					d.debug("scan consumer stopped iteration early, worker: ", workerId)
-					cancel()
-				}
-				return getMore && scanCtx.Err() == nil
-			}
-			d.debug("starting scan worker: ", workerId)
-			if err := d.rangeSegment(awareConsumer, workerId); err != nil {
-				d.debug("scan worker had error:", err, ", worker:", workerId)
-				errOnce.Do(func() { workerErrs <- err })
-			} else {
-				d.debug("scan worker done, worker:", workerId)
-			}
-		}(i)
-	}
-
-	go func() {
-		wg.Wait()
-		if scanCtx.Err() == nil {
-			close(workerErrs)
-		}
-	}()
-	select {
-	case <-scanCtx.Done():
-		return nil
-	case err := <-workerErrs:
-		return err
-	}
 }

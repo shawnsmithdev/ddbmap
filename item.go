@@ -3,6 +3,8 @@ package ddbmap
 import (
 	ddb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/shawnsmithdev/ddbmap/ddbconv"
+	"reflect"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/dynamodbattribute"
 )
 
 // Item is a type alias for map[string]AttributeValue, the output of dynamodbattribute.MarshalMap.
@@ -26,44 +28,91 @@ func (item Item) GetAsBinarySet(attr string) [][]byte {
 	return ddbconv.FromBinarySet(item[attr])
 }
 
-// GetAsNumber returns the attribute of this item with the given name as an int,
+// GetAsInt returns the attribute of this item with the given name as an int,
 // and will panic if the attribute is not present or is not an integral number.
 // If the attribute is optional, use TryGetAsNumber instead.
-func (item Item) GetAsNumber(attr string) int {
-	return ddbconv.FromNumber(item[attr])
+func (item Item) GetAsInt(attr string) int {
+	return ddbconv.FromInt(item[attr])
 }
 
-// TryGetAsNumber returns the attribute of this item with the given name as an int,
+// TryGetAsInt returns the attribute of this item with the given name as an int,
 // with a false ok result if the attribute is not present or is not an integral number.
-func (item Item) TryGetAsNumber(attr string) (val int, ok bool) {
-	return ddbconv.TryFromNumber(item[attr])
+func (item Item) TryGetAsInt(attr string) (val int, ok bool) {
+	if n, present := item[attr]; present {
+		return ddbconv.TryFromInt(n)
+	}
+	return 0, false
 }
 
-// GetAsNumberSet returns the attribute of this item with the given name as an int slice,
+// GetAsIntSet returns the attribute of this item with the given name as an slice of ints,
 // which may be empty if the attribute is not present or is not an number set with integral values.
-func (item Item) GetAsNumberSet(attr string) []int {
-	return ddbconv.FromNumberSet(item[attr])
+func (item Item) GetAsIntSet(attr string) []int {
+	if n, present := item[attr]; present {
+		return ddbconv.FromIntSet(n)
+	}
+	return []int{}
 }
 
-// GetAsString returns the attribute of this imte with the given name as a string,
+// GetAsString returns the attribute of this item with the given name as a string,
 // which may be empty if the attribute if not present or not a string.
 func (item Item) GetAsString(attr string) string {
 	return ddbconv.FromString(item[attr])
 }
+
+// GetAsStringSet returns the attribute of this item with the given name as a slice of strings,
+// which may be empty if the attribute if not present or not a string set.
 func (item Item) GetAsStringSet(attr string) []string {
 	return ddbconv.FromStringSet(item[attr])
 }
+
+// GetAsBool returns the attribute of this item with the given name as a bool,
+// and will panic if the attribute is not present or not a boolean.
+// If the attribute is optional, use TryGetAsBoolean instead
 func (item Item) GetAsBool(attr string) bool {
 	return ddbconv.FromBool(item[attr])
 }
+
+// TryGetAsBool returns the attribute of this item with the given name as a bool.
+// The ok result returns true if the value was present and a boolean.
+func (item Item) TryGetAsBool(attr string) (val bool, ok bool) {
+	if b, present := item[attr]; present {
+		return ddbconv.TryFromBool(b)
+	}
+	return false, false
+}
+
+// GetAsMap TODO: doc
 func (item Item) GetAsMap(attr string) Item {
 	return ddbconv.FromMap(item[attr])
 }
+
+// GetAsList TODO: doc
 func (item Item) GetAsList(attr string) []ddb.AttributeValue {
 	return ddbconv.FromList(item[attr])
 }
+
+// Exists returns true if the given attribute exists, even if it is null.
+func (item Item) Exists(attr string) bool {
+	_, ok := item[attr]
+	return ok
+}
+
+// IsPresent returns true if attribute exists and is not null.
+func (item Item) IsPresent(attr string) bool {
+	if av, exists := item[attr]; exists {
+		null := av.NULL
+		return null == nil || !*null
+	}
+	return false
+}
+
+// IsNull returns true if attribute exists, but is null.
 func (item Item) IsNull(attr string) bool {
-	return *item[attr].NULL
+	if av, exists := item[attr]; exists {
+		null := av.NULL
+		return null != nil && *null
+	}
+	return false
 }
 
 // Itemable is implemented by types that can directly build representations of their data in the DynamoDB type system.
@@ -113,4 +162,24 @@ type ItemMap interface {
 	// StoreItemIfVersion stores the given item if there is an existing item with the same key(s) and the given version.
 	// Returns true if the item was stored.
 	StoreItemIfVersion(item Itemable, version int64) (ok bool, err error)
+}
+
+// ItemUnmarshaller is a function that can convert an Item into some other type
+type ItemUnmarshaller func(Item) (interface{}, error)
+
+// UnmarshallerForType creates a new ItemUnmashaller function that uses reflection and dynamodbattribute.UnmarshalMap.
+// The template should be a value of the struct type you want items to be unmarshalled into.
+func UnmarshallerForType(template interface{}) ItemUnmarshaller {
+	t := reflect.TypeOf(template)
+	return func(item Item) (val interface{}, err error) {
+		val = reflect.New(t).Interface()
+		if len(item) < 1 {
+			return val, nil
+		}
+		err = dynamodbattribute.UnmarshalMap(item, val)
+		if err != nil {
+			return val, nil
+		}
+		return reflect.ValueOf(val).Elem().Interface(), nil
+	}
 }

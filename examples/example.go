@@ -33,7 +33,7 @@ type userKey struct {
 
 func (uk userKey) AsItem() ddbmap.Item {
 	return ddbmap.Item{
-		userIdField: ddbconv.ToNumber(uk.Id),
+		userIdField: ddbconv.ToInt(uk.Id),
 	}
 }
 
@@ -58,27 +58,26 @@ const (
 
 func (tr user) AsItem() ddbmap.Item {
 	return ddbmap.Item{
-		userIdField:       ddbconv.ToNumber(tr.Id),
+		userIdField:       ddbconv.ToInt(tr.Id),
 		userNameField:     ddbconv.ToString(tr.Name),
 		userFriendlyField: ddbconv.ToBool(tr.Friendly),
 		userAvatarField:   ddbconv.ToBinary(tr.Avatar),
-		userVersionField:  ddbconv.ToNumber(tr.Version),
+		userVersionField:  ddbconv.ToInt(tr.Version),
 	}
 }
 
 func userFromItem(item ddbmap.Item) user {
 	return user{
-		userKey:  userKey{Id: item.GetAsNumber(userIdField)},
+		userKey:  userKey{Id: item.GetAsInt(userIdField)},
 		Name:     item.GetAsString(userNameField),
 		Friendly: item.GetAsBool(userFriendlyField),
 		Avatar:   item.GetAsBinary(userAvatarField),
-		Version:  item.GetAsNumber(userVersionField),
+		Version:  item.GetAsInt(userVersionField),
 	}
 }
 
-func getUserDynamo(cfg aws.Config, libDebug bool) ddbmap.TableConfig {
+func getUserDynamo(libDebug bool) ddbmap.TableConfig {
 	return ddbmap.TableConfig{
-		AWSConfig:                 cfg,
 		TableName:                 userTableName,
 		HashKeyName:               userIdField,
 		HashKeyType:               dynamodb.ScalarAttributeTypeN,
@@ -178,22 +177,16 @@ func testGameMap(itemMap ddbmap.Map) {
 }
 
 // Example of using the reflection-based map methods.
-func buildDynamoTestGame(cfg aws.Config, libDebug bool) ddbmap.ItemMap {
-	// Configure the map
-	tCfg := ddbmap.TableConfig{
-		AWSConfig:                 cfg,
+func buildDynamoTestGameConfig(libDebug bool) ddbmap.TableConfig {
+	return ddbmap.TableConfig{
 		TableName:                 gameTableName,
 		HashKeyName:               gameId,
 		HashKeyType:               dynamodb.ScalarAttributeTypeN,
 		CreateTableIfNotExists:    true,
 		ReadWithStrongConsistency: true,
-		Debug: libDebug,
-		Value: game{},
+		Debug:             libDebug,
+		ValueUnmarshaller: ddbmap.UnmarshallerForType(game{}),
 	}
-
-	// Create and test the map
-	itemMap, _ := tCfg.NewItemMap()
-	return itemMap
 }
 
 func checkFlags(cfg aws.Config) (aws.Config, bool) {
@@ -231,34 +224,42 @@ func main() {
 
 	// Test reflection API using Dynamo
 	log.Println("start test reflection dynamo")
-	testGameMap(buildDynamoTestGame(cfg, libDebug))
+	tCfg := buildDynamoTestGameConfig(libDebug)
+	var tableMap ddbmap.Map
+	tableMap, err = tCfg.NewItemMap(cfg)
+	if err != nil {
+		panic(err)
+	}
+	testGameMap(tableMap)
 	log.Println("end test reflection dynamo")
 
 	// Test reflection API using sync.Map
 	log.Println("start test reflection sync.Map")
 	var gm sync.Map
-	testGameMap(&gm)
+	tableMap = &gm
+	testGameMap(tableMap)
 	log.Println("end test reflection sync.Map")
 
 	// Test Itemable API using Dynamo
 	log.Println("start test itemable dynamo")
-	table := getUserDynamo(cfg, libDebug)
-	m, err := table.NewItemMap()
+	var table ddbmap.ItemMap
+	tCfg = getUserDynamo(libDebug)
+	table, err = tCfg.NewItemMap(cfg)
 	if err != nil {
 		panic(err)
 	}
-	testUser(m)
+	testUser(table)
 	log.Println("end test Itemable dynamo")
 
 	// Test key discovery
 	log.Println("start test key discovery dynamo")
-	table.CreateTableIfNotExists = false
-	table.HashKeyName = ""
-	table.HashKeyType = ""
-	m, err = table.NewItemMap()
+	tCfg.CreateTableIfNotExists = false
+	tCfg.HashKeyName = ""
+	tCfg.HashKeyType = ""
+	table, err = tCfg.NewItemMap(cfg)
 	if err != nil {
 		panic(err)
 	}
-	testUser(m)
+	testUser(table)
 	log.Println("end test key discovery dynamo")
 }
