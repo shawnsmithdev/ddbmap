@@ -105,3 +105,10 @@ func main() {
     })
 }
 ```
+# TODO
+* Cleanup example
+* Finish docs for `ddbconv`, `DynamoMap`
+* Another short example in readme for itemable API
+* Test against real DynamoDB, not just DDB Local
+* Test range early termination
+* Test other set types, null
