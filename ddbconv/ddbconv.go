@@ -66,9 +66,8 @@ func TryFromInt(av ddb.AttributeValue) (int, bool) {
 	if num, ok := TryFromNumber(av); ok {
 		val, err := strconv.Atoi(string(num))
 		return val, err == nil
-	} else {
-		return 0, false
 	}
+	return 0, false
 }
 
 // ToInt TODO: doc
@@ -166,7 +165,7 @@ func FromList(attr ddb.AttributeValue) []ddb.AttributeValue {
 	return attr.L
 }
 
-// ToList: TODO: doc
+// ToList TODO: doc
 func ToList(val []ddb.AttributeValue) ddb.AttributeValue {
 	return ddb.AttributeValue{L: val}
 }

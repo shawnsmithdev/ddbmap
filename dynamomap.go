@@ -14,7 +14,7 @@ import (
 
 var (
 	// Indicates that a range operation consumer caused an early termination by returning false, do not return it.
-	earlyTermination = fmt.Errorf("ddbmap early termination")
+	errEarlyTermination = fmt.Errorf("ddbmap early termination")
 )
 
 // DynamoMap implements ItemMap (with pointer methods), backed by a DynamoDB table.
@@ -205,7 +205,7 @@ func (d *DynamoMap) StoreItem(val Itemable) error {
 	return d.store(val.AsItem(), nil)
 }
 
-// Stores the given value. The first argument is ignored.
+// Store stores the given value. The first argument is ignored.
 func (d *DynamoMap) Store(_, val interface{}) {
 	valItem, err := MarshalItem(val)
 	d.forbidErr(err)
@@ -324,7 +324,7 @@ func (d *DynamoMap) rangeSegment(ctx context.Context, consumer func(Item) bool, 
 		for _, item := range resp.Items {
 			if !consumer(item) {
 				d.debug("scan worker received early termination, worker:", workerId)
-				return earlyTermination
+				return errEarlyTermination
 			}
 		}
 		// check for next page
@@ -351,7 +351,7 @@ func (d *DynamoMap) RangeItems(consumer func(Item) bool) error {
 		})
 	}
 	err := eg.Wait()
-	if err == earlyTermination {
+	if err == errEarlyTermination {
 		return nil
 	}
 	return err
