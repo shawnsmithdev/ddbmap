@@ -16,3 +16,6 @@
 
 # Test executable
 example/example
+
+# TODO: maybe remove later
+go.sum

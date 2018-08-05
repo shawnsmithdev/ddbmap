@@ -184,8 +184,8 @@ func buildDynamoTestGameConfig(libDebug bool) ddbmap.TableConfig {
 		HashKeyType:               dynamodb.ScalarAttributeTypeN,
 		CreateTableIfNotExists:    true,
 		ReadWithStrongConsistency: true,
-		Debug:             libDebug,
-		ValueUnmarshaller: ddbmap.UnmarshallerForType(game{}),
+		Debug:                     libDebug,
+		ValueUnmarshaller:         ddbmap.UnmarshallerForType(game{}),
 	}
 }
 
