@@ -114,5 +114,4 @@ in `ddbmap/ddbconv` to help users implement `Itemable`.
 * Test other set types, null
 * Item API README example
 * Cleanup example package
-* Finish docs for `ddbconv`, `DynamoMap`
-* Go 1.11 module
+* Finish docs for `ddbconv`, `DynamoMap
