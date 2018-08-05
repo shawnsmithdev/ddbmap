@@ -7,7 +7,7 @@
 
 It is not complete. Until a commit is tagged, the API may be broken or changed for any reason without notice.
 
-It depends on AWS Go SDK v2 and `golang.com/x/sync/errgroup`
+It depends on AWS Go SDK v2 and `golang.org/x/sync/errgroup`
 
 # Motivation
 The AWS Go SDK is fairly low level. It acts as a kind of wrapper around the AWS REST API.
