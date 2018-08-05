@@ -43,22 +43,17 @@ type TableConfig struct {
 	ValueUnmarshaller ItemUnmarshaller
 }
 
-func (tc TableConfig) ranged() bool {
+// Ranged returns true if RangeKeyName is not empty
+func (tc TableConfig) Ranged() bool {
 	return len(tc.RangeKeyName) > 0
 }
 
 // ToKeyItem returns an item with only the configured key(s) copied from the given item.
-// TODO: move somewhere else
-func (tc TableConfig) ToKeyItem(item Item) (result Item) {
-	if len(item) == 1 || (tc.ranged() && len(item) == 2) {
-		result = item
-	} else {
-		result = Item{tc.HashKeyName: item[tc.HashKeyName]}
-		if tc.ranged() {
-			result[tc.RangeKeyName] = item[tc.RangeKeyName]
-		}
+func (tc TableConfig) ToKeyItem(item Item) Item {
+	if tc.Ranged() {
+		return item.Project(tc.HashKeyName, tc.RangeKeyName)
 	}
-	return result
+	return item.Project(tc.HashKeyName)
 }
 
 // NewItemMap creates an ItemMap view of a DynamoDB table from a TableConfig.

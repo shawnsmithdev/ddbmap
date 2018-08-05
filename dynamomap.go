@@ -108,7 +108,7 @@ func (d *DynamoMap) createTable() error {
 	attrs := []ddb.AttributeDefinition{
 		{AttributeName: &d.HashKeyName, AttributeType: d.HashKeyType},
 	}
-	if d.ranged() {
+	if d.Ranged() {
 		schema = append(schema,
 			ddb.KeySchemaElement{AttributeName: &d.RangeKeyName, KeyType: ddb.KeyTypeRange})
 		attrs = append(attrs,
@@ -146,10 +146,12 @@ func (d *DynamoMap) delete(item Item) error {
 	return err
 }
 
+// DeleteItem TODO: doc
 func (d *DynamoMap) DeleteItem(key Itemable) error {
 	return d.delete(key.AsItem())
 }
 
+// Delete TODO: doc
 func (d *DynamoMap) Delete(key interface{}) {
 	item, err := MarshalItem(key)
 	d.forbidErr(err)
@@ -171,10 +173,12 @@ func (d *DynamoMap) load(key Item) (value Item, ok bool, err error) {
 	return nil, false, err
 }
 
+// LoadItem TODO: doc
 func (d *DynamoMap) LoadItem(key Itemable) (item Item, ok bool, err error) {
 	return d.load(key.AsItem())
 }
 
+// Load TODO: doc
 func (d *DynamoMap) Load(key interface{}) (value interface{}, ok bool) {
 	keyItem, err := MarshalItem(key)
 	d.forbidErr(err)
@@ -201,6 +205,7 @@ func (d *DynamoMap) store(item Item, condition *expression.ConditionBuilder) err
 	return err
 }
 
+// StoreItem TODO: doc
 func (d *DynamoMap) StoreItem(val Itemable) error {
 	return d.store(val.AsItem(), nil)
 }
@@ -253,10 +258,12 @@ func (d *DynamoMap) loadOrStore(item Item) (Item, bool, error) {
 	}
 }
 
+// LoadOrStoreItem TODO: doc
 func (d *DynamoMap) LoadOrStoreItem(val Itemable) (actual Item, loaded bool, err error) {
 	return d.loadOrStore(val.AsItem())
 }
 
+// LoadOrStore TODO: doc
 func (d *DynamoMap) LoadOrStore(_, val interface{}) (interface{}, bool) {
 	valItem, err := MarshalItem(val)
 	d.forbidErr(err)
@@ -336,6 +343,7 @@ func (d *DynamoMap) rangeSegment(ctx context.Context, consumer func(Item) bool, 
 	}
 }
 
+// RangeItems TODO: doc
 func (d *DynamoMap) RangeItems(consumer func(Item) bool) error {
 	// serial
 	if d.ScanConcurrency <= 1 {
@@ -357,6 +365,7 @@ func (d *DynamoMap) RangeItems(consumer func(Item) bool) error {
 	return err
 }
 
+// Range TOOD: doc
 func (d *DynamoMap) Range(consumer func(_, value interface{}) bool) {
 	d.RangeItems(func(item Item) bool {
 		return consumer(nil, d.unmarshalItem(item))

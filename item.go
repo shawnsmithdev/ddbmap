@@ -2,9 +2,9 @@ package ddbmap
 
 import (
 	ddb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb/dynamodbattribute"
-	"github.com/shawnsmithdev/ddbmap/ddbconv"
+		"github.com/shawnsmithdev/ddbmap/ddbconv"
 	"reflect"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/dynamodbattribute"
 )
 
 // Item is a type alias for map[string]AttributeValue, the output of dynamodbattribute.MarshalMap.
@@ -115,6 +115,17 @@ func (item Item) IsNull(attr string) bool {
 	return false
 }
 
+// Project returns a new item based on this one, but with only the specified attributes.
+func (item Item) Project(attrs ...string) Item {
+	result := make(Item, len(attrs))
+	for _, attr := range attrs {
+		if val, ok := item[attr]; ok {
+			result[attr] = val
+		}
+	}
+	return result
+}
+
 // Itemable is implemented by types that can directly build representations of their data in the DynamoDB type system.
 // This allows users to take direct control of how their data is presented to DynamoDB.
 // Item also implements Itemable, by returning itself, so any method that take Itemable can accept an Item directly.
@@ -171,14 +182,10 @@ type ItemUnmarshaller func(Item) (interface{}, error)
 // The template should be a value of the struct type you want items to be unmarshalled into.
 func UnmarshallerForType(template interface{}) ItemUnmarshaller {
 	t := reflect.TypeOf(template)
-	return func(item Item) (val interface{}, err error) {
-		val = reflect.New(t).Interface()
-		if len(item) < 1 {
-			return val, nil
-		}
-		err = dynamodbattribute.UnmarshalMap(item, val)
-		if err != nil {
-			return val, nil
+	return func(item Item) (interface{}, error) {
+		val := reflect.New(t).Interface()
+		if err := dynamodbattribute.UnmarshalMap(item, val); err != nil {
+			return nil, err
 		}
 		return reflect.ValueOf(val).Elem().Interface(), nil
 	}
