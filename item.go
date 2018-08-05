@@ -2,9 +2,9 @@ package ddbmap
 
 import (
 	ddb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
-		"github.com/shawnsmithdev/ddbmap/ddbconv"
-	"reflect"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/dynamodbattribute"
+	"github.com/shawnsmithdev/ddbmap/ddbconv"
+	"reflect"
 )
 
 // Item is a type alias for map[string]AttributeValue, the output of dynamodbattribute.MarshalMap.
