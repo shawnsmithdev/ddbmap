@@ -76,9 +76,9 @@ func main() {
 
     // Assumes table already exists, will auto-discover key names
     tCfg := ddbmap.TableConfig{
-        AWSConfig: awsCfg,
-        TableName: "TestTable",
-        Value:     Person{},
+        AWSConfig:         awsCfg,
+        TableName:         "TestTable",
+        ValueUnmarshaller: ddbmap.UnmarshallerForType(Person{})
     }
     people, _ := tCfg.NewItemMap()
 
@@ -103,8 +103,7 @@ func main() {
 # Item API
 As an alternative approach, the `ddbmap.ItemMap` API may be used with some more effort by implementing `ddbmap.Itemable`
 to handle conversions between the Go and DynamoDB type systems directly, without using reflection.
-All methods that take `Itemable` will return an `error` and will not panic. This API also provides a few additional
-conditional operations with no analogue in `ddbmap.Map` / `*sync.Map`.
+All methods that take `Itemable` will return an `error` and will not panic.
 
 Doing these kinds of type conversions can be tedious and hard to read, so a utility library is provided
 in `ddbmap/ddbconv` to help users implement `Itemable`.
