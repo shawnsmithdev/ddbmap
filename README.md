@@ -3,9 +3,11 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/shawnsmithdev/ddbmap)](https://goreportcard.com/report/github.com/shawnsmithdev/ddbmap)
 
 # ddbmap
-ddbmap is a Go (golang) library that presents a map-like view of an AWS DynamoDB table (using AWS Go SDK v2).
+`ddbmap` is a Go (golang) library that presents a map-like view of an AWS DynamoDB table.
 
 It is not complete. Until a commit is tagged, the API may be broken or changed for any reason without notice.
+
+It depends on AWS Go SDK v2 and `golang.com/x/sync/errgroup`
 
 # Motivation
 The AWS Go SDK is fairly low level. It acts as a kind of wrapper around the AWS REST API.
@@ -21,15 +23,14 @@ to provide a simplified API for users that only need a limited subset of DynamoD
 * Conditional Put If Absent
 * Iterate over all records (serially or in parallel)
 
-# Design Choices
-This library has a few design choices you should be aware of before using it, and especially before submitting
-any feature request that may be at odds with these choices.
+# Use of `int`
 
 Numerical values can be used as either `int` or `dynamodbattribute.Number`.
 Unlike the AWS SDK, `int64` is not used, as 32-bit systems are not supported by this library.
 Any other use cases, like floating point or large precision, can be handled with `Number`.
 Some helpers for using `Number` are available in `dynamodbattribute` and `ddbmap/ddbconv`.
 
+# Conditional Updates (versions)
 If users wishes to do
 [conditional updates](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/WorkingWithItems.html#WorkingWithItems.ConditionalUpdate),
 they should define a numerical version field and configure `VersionName` in their `TableConfig` to the name of that
@@ -37,22 +38,15 @@ field. Dynamo can support conditional operations on any field, but the potential
 update conditions depend on fields that do not obviously need to be changed on update. An explicit version field avoids
 an entire class of potential concurrent modification bugs, so that is all this library supports.
 
-# Choice of API
-Users may choose to use the reflection-based API `ddbmap.Map` with very little code required, but be aware that
+# Map API
+The reflection-based API `ddbmap.Map` requires very little code to use, but be aware that
 you must either accept capitalized DynamoDB field names, or use dynamo struct tags to rename exported fields.
 This API has the advantage that users can use `*sync.Map` instead of DynamoDB Local for unit testing.
 It has the disadvantage that it cannot tolerate AWS SDK errors, and will panic if they occur. Users are advised to
 handle panics with `recover`, and at least ensure the SDK will always retry the usual errors like throttling.
 
-As an alternative approach, the `ddbmap.ItemMap` API may be used with some more effort by implementing `ddbmap.Itemable`
-to handle conversions between the Go and DynamoDB type systems directly, without using reflection.
-All methods that take `Itemable` will return an `error` and will not panic. This API also provides a few additional
-conditional operations with no analogue in `ddbmap.Map` / `*sync.Map`.
-
-Doing these kinds of type conversions can be tedious and hard to read, so a utility library is provided
-in `ddbmap/ddbconv` to help users implement `Itemable`.
-
-# Usage
+Map API Usage
+-------------
 Users getting started with ddbmap might also reference the `ddbmap/examples` package.
 
 ```go
@@ -105,10 +99,21 @@ func main() {
     })
 }
 ```
+
+# Item API
+As an alternative approach, the `ddbmap.ItemMap` API may be used with some more effort by implementing `ddbmap.Itemable`
+to handle conversions between the Go and DynamoDB type systems directly, without using reflection.
+All methods that take `Itemable` will return an `error` and will not panic. This API also provides a few additional
+conditional operations with no analogue in `ddbmap.Map` / `*sync.Map`.
+
+Doing these kinds of type conversions can be tedious and hard to read, so a utility library is provided
+in `ddbmap/ddbconv` to help users implement `Itemable`.
+
 # TODO
-* Cleanup example
-* Finish docs for `ddbconv`, `DynamoMap`
-* Another short example in readme for itemable API
 * Test against real DynamoDB, not just DDB Local
 * Test range early termination
 * Test other set types, null
+* Item API README example
+* Cleanup example package
+* Finish docs for `ddbconv`, `DynamoMap`
+* Go 1.11 module
