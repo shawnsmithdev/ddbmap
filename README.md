@@ -113,7 +113,6 @@ in `ddbmap/ddbconv` to help users implement `Itemable`.
 * Test range early termination
 * Test other set types, null
 * Item API README example
-* Finish docs for `DynamoMap`
 * Add Batch API?
 * Add reflection-based no-panic API?
 
