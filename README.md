@@ -76,11 +76,10 @@ func main() {
 
     // Assumes table already exists, will auto-discover key names
     tCfg := ddbmap.TableConfig{
-        AWSConfig:         awsCfg,
         TableName:         "TestTable",
         ValueUnmarshaller: ddbmap.UnmarshallerForType(Person{})
     }
-    people, _ := tCfg.NewItemMap()
+    people, _ := tCfg.NewMap(awsCfg)
 
     // put
     p1 := Person{PersonKey: {Id: 1}, Name: "Bob", Age: 20}
