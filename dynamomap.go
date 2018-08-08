@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	// Indicates that a range operation consumer caused an early termination by returning false, do not return it.
+	// Indicates that a range operation consumer caused an early termination by returning false. Do not return it.
 	errEarlyTermination = fmt.Errorf("ddbmap early termination")
 )
 
@@ -26,10 +26,10 @@ type DynamoMap struct {
 }
 
 func (d *DynamoMap) log(vals ...interface{}) {
-	toLog := append([]interface{}{"(ddbmap)"}, vals...)
 	if d.Logger == nil {
-		log.Println(toLog...)
+		log.Println(vals...)
 	} else {
+		toLog := append([]interface{}{"(ddbmap)"}, vals...)
 		d.Logger.Log(toLog...)
 	}
 }
@@ -146,12 +146,12 @@ func (d *DynamoMap) delete(item Item) error {
 	return err
 }
 
-// DeleteItem TODO: doc
+// DeleteItem deletes any existing item with the same key(s) as the given item.
 func (d *DynamoMap) DeleteItem(key Itemable) error {
 	return d.delete(key.AsItem())
 }
 
-// Delete TODO: doc
+// Delete delete the value stored under the same key(s) as the given value, if any.
 func (d *DynamoMap) Delete(key interface{}) {
 	item, err := MarshalItem(key)
 	d.forbidErr(err)
@@ -173,12 +173,14 @@ func (d *DynamoMap) load(key Item) (value Item, ok bool, err error) {
 	return nil, false, err
 }
 
-// LoadItem TODO: doc
+// LoadItem returns the existing item, if present, with the same key(s) as the given item.
+// The ok result returns true if the value was found.
 func (d *DynamoMap) LoadItem(key Itemable) (item Item, ok bool, err error) {
 	return d.load(key.AsItem())
 }
 
-// Load TODO: doc
+// Load returns any value stored under the same key(s) as the given value, if any.
+// The ok result indicates if there a value was found for the key.
 func (d *DynamoMap) Load(key interface{}) (value interface{}, ok bool) {
 	keyItem, err := MarshalItem(key)
 	d.forbidErr(err)
@@ -205,7 +207,7 @@ func (d *DynamoMap) store(item Item, condition *expression.ConditionBuilder) err
 	return err
 }
 
-// StoreItem TODO: doc
+// StoreItem stores the given item, clobbering any existing item with the same key(s).
 func (d *DynamoMap) StoreItem(val Itemable) error {
 	return d.store(val.AsItem(), nil)
 }
@@ -244,7 +246,7 @@ func (d *DynamoMap) StoreIfAbsent(_, val interface{}) (stored bool) {
 	return stored
 }
 
-// LoadOrStore returns the value stored under same key as the given value, if any,
+// LoadOrStore returns the value stored under same key(s) as the given value, if any,
 // else stores and returns the given value.
 // The loaded result is true if the value was loaded, false if stored.
 func (d *DynamoMap) loadOrStore(item Item) (Item, bool, error) {
@@ -258,12 +260,17 @@ func (d *DynamoMap) loadOrStore(item Item) (Item, bool, error) {
 	}
 }
 
-// LoadOrStoreItem TODO: doc
+// LoadOrStoreItem returns the existing item, if present, with the same key(s) as the given item.
+// Otherwise, it stores and returns the given item.
+// The loaded result is true if the value was loaded, false if stored.
 func (d *DynamoMap) LoadOrStoreItem(val Itemable) (actual Item, loaded bool, err error) {
 	return d.loadOrStore(val.AsItem())
 }
 
-// LoadOrStore TODO: doc
+// LoadOrStore returns any value stored that has the same key as the given value, if any,
+// else stores and returns the given value.
+// The loaded result is true if the value was loaded, false if stored.
+// The first argument is ignored.
 func (d *DynamoMap) LoadOrStore(_, val interface{}) (interface{}, bool) {
 	valItem, err := MarshalItem(val)
 	d.forbidErr(err)
@@ -343,7 +350,8 @@ func (d *DynamoMap) rangeSegment(ctx context.Context, consumer func(Item) bool, 
 	}
 }
 
-// RangeItems TODO: doc
+// RangeItems calls the given consumer for each stored item.
+// Iteration eventually stops if the given function returns false.
 func (d *DynamoMap) RangeItems(consumer func(Item) bool) error {
 	// serial
 	if d.ScanConcurrency <= 1 {
@@ -352,7 +360,7 @@ func (d *DynamoMap) RangeItems(consumer func(Item) bool) error {
 
 	// parallel
 	eg, ctx := errgroup.WithContext(context.Background())
-	for i := int(0); i < d.ScanConcurrency; i++ {
+	for i := 0; i < d.ScanConcurrency; i++ {
 		workerId := i
 		eg.Go(func() error {
 			return d.rangeSegment(ctx, consumer, workerId)
@@ -365,9 +373,11 @@ func (d *DynamoMap) RangeItems(consumer func(Item) bool) error {
 	return err
 }
 
-// Range TOOD: doc
+// Range iterates over the map and applies the given function to every value.
+// Iteration eventually stops if the given function returns false.
+// The first argument to the consumer is always nil and should be ignored.
 func (d *DynamoMap) Range(consumer func(_, value interface{}) bool) {
-	d.RangeItems(func(item Item) bool {
+	d.forbidErr(d.RangeItems(func(item Item) bool {
 		return consumer(nil, d.unmarshalItem(item))
-	})
+	}))
 }

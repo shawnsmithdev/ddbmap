@@ -7,7 +7,7 @@ import (
 	"reflect"
 )
 
-// Item is a type alias for map[string]AttributeValue, the output of dynamodbattribute.MarshalMap.
+// Item is a type underlied by the map type output by dynamodbattribute.MarshalMap.
 // This represents a single row in a DynamoDB table or a 'Map' in the DynamoDB type system.
 type Item map[string]ddb.AttributeValue
 
@@ -19,27 +19,27 @@ func (item Item) AsItem() Item {
 // GetAsBinary returns the attribute of this item with the given name as a byte slice,
 // which may be empty if the attribute is not present or not binary data.
 func (item Item) GetAsBinary(attr string) []byte {
-	return ddbconv.FromBinary(item[attr])
+	return ddbconv.DecodeBinary(item[attr])
 }
 
 // GetAsBinarySet returns the attribute of this item with the given name as a slice of byte slices,
 // which may be empty if the attribute is not present or not a binary set.
 func (item Item) GetAsBinarySet(attr string) [][]byte {
-	return ddbconv.FromBinarySet(item[attr])
+	return ddbconv.DecodeBinarySet(item[attr])
 }
 
 // GetAsInt returns the attribute of this item with the given name as an int,
 // and will panic if the attribute is not present or is not an integral number.
 // If the attribute is optional, use TryGetAsNumber instead.
 func (item Item) GetAsInt(attr string) int {
-	return ddbconv.FromInt(item[attr])
+	return ddbconv.DecodeInt(item[attr])
 }
 
 // TryGetAsInt returns the attribute of this item with the given name as an int,
 // with a false ok result if the attribute is not present or is not an integral number.
 func (item Item) TryGetAsInt(attr string) (val int, ok bool) {
 	if n, present := item[attr]; present {
-		return ddbconv.TryFromInt(n)
+		return ddbconv.TryDecodeInt(n)
 	}
 	return 0, false
 }
@@ -48,7 +48,7 @@ func (item Item) TryGetAsInt(attr string) (val int, ok bool) {
 // which may be empty if the attribute is not present or is not an number set with integral values.
 func (item Item) GetAsIntSet(attr string) []int {
 	if n, present := item[attr]; present {
-		return ddbconv.FromIntSet(n)
+		return ddbconv.DecodeIntSet(n)
 	}
 	return []int{}
 }
@@ -56,39 +56,40 @@ func (item Item) GetAsIntSet(attr string) []int {
 // GetAsString returns the attribute of this item with the given name as a string,
 // which may be empty if the attribute if not present or not a string.
 func (item Item) GetAsString(attr string) string {
-	return ddbconv.FromString(item[attr])
+	return ddbconv.DecodeString(item[attr])
 }
 
 // GetAsStringSet returns the attribute of this item with the given name as a slice of strings,
 // which may be empty if the attribute if not present or not a string set.
 func (item Item) GetAsStringSet(attr string) []string {
-	return ddbconv.FromStringSet(item[attr])
+	return ddbconv.DecodeStringSet(item[attr])
 }
 
-// GetAsBool returns the attribute of this item with the given name as a bool,
-// and will panic if the attribute is not present or not a boolean.
-// If the attribute is optional, use TryGetAsBoolean instead
+// GetAsBool returns the attribute of this item with the given name as a bool.
+// The result is also false if the value is not there or not a boolean.
 func (item Item) GetAsBool(attr string) bool {
-	return ddbconv.FromBool(item[attr])
+	return ddbconv.DecodeBool(item[attr])
 }
 
 // TryGetAsBool returns the attribute of this item with the given name as a bool.
 // The ok result returns true if the value was present and a boolean.
 func (item Item) TryGetAsBool(attr string) (val bool, ok bool) {
 	if b, present := item[attr]; present {
-		return ddbconv.TryFromBool(b)
+		return ddbconv.TryDecodeBool(b)
 	}
 	return false, false
 }
 
-// GetAsMap TODO: doc
+// GetAsMap returns the map attribute of this item with the given name as an Item.
+// The result will be empty if the value is not present or not a map.
 func (item Item) GetAsMap(attr string) Item {
-	return ddbconv.FromMap(item[attr])
+	return ddbconv.DecodeMap(item[attr])
 }
 
-// GetAsList TODO: doc
+// GetAsList returns the map attribute of this item with the given name as a slice of AttributeValues.
+// The result with be empty if the value is not present or not a map.
 func (item Item) GetAsList(attr string) []ddb.AttributeValue {
-	return ddbconv.FromList(item[attr])
+	return ddbconv.DecodeList(item[attr])
 }
 
 // Exists returns true if the given attribute exists, even if it is null.
@@ -100,8 +101,7 @@ func (item Item) Exists(attr string) bool {
 // IsPresent returns true if attribute exists and is not null.
 func (item Item) IsPresent(attr string) bool {
 	if av, exists := item[attr]; exists {
-		null := av.NULL
-		return null == nil || !*null
+		return !ddbconv.IsNull(av)
 	}
 	return false
 }
@@ -109,8 +109,7 @@ func (item Item) IsPresent(attr string) bool {
 // IsNull returns true if attribute exists, but is null.
 func (item Item) IsNull(attr string) bool {
 	if av, exists := item[attr]; exists {
-		null := av.NULL
-		return null != nil && *null
+		return ddbconv.IsNull(av)
 	}
 	return false
 }
@@ -163,7 +162,6 @@ type ItemMap interface {
 
 	// RangeItems calls the given consumer for each stored item.
 	// If the consumer returns false, range eventually stops the iteration.
-	// If a consumer returns false once, it should eventually always return false.
 	RangeItems(consumer func(Item) (resume bool)) error
 
 	// StoreIfVersion stores the given item if there is an existing item with the same key(s) and the given version.
@@ -178,8 +176,8 @@ type ItemMap interface {
 // ItemUnmarshaller is a function that can convert an Item into some other type
 type ItemUnmarshaller func(Item) (interface{}, error)
 
-// UnmarshallerForType creates a new ItemUnmashaller function that uses reflection and dynamodbattribute.UnmarshalMap.
-// The template should be a value of the struct type you want items to be unmarshalled into.
+// UnmarshallerForType creates a new ItemUnmashaller function from a template.
+// The template may be any value of the struct type you want items to be unmarshalled into, such as the zero value.
 func UnmarshallerForType(template interface{}) ItemUnmarshaller {
 	t := reflect.TypeOf(template)
 	return func(item Item) (interface{}, error) {

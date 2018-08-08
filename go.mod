@@ -11,7 +11,7 @@ require (
 	github.com/smartystreets/assertions v0.0.0-20180803164922-886ec427f6b9 // indirect
 	github.com/smartystreets/goconvey v0.0.0-20180222194500-ef6db91d284a // indirect
 	github.com/stretchr/testify v1.2.2 // indirect
-	golang.org/x/net v0.0.0-20180801234040-f4c29de78a2a // indirect
+	golang.org/x/net v0.0.0-20180808004115-f9ce57c11b24 // indirect
 	golang.org/x/sync v0.0.0-20180314180146-1d60e4601c6f
 	gopkg.in/ini.v1 v1.38.1 // indirect
 )

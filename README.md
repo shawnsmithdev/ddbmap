@@ -7,7 +7,7 @@
 
 It is not complete. Until a commit is tagged, the API may be broken or changed for any reason without notice.
 
-It depends on AWS Go SDK v2 and `golang.org/x/sync/errgroup`
+It currently depends on AWS Go SDK v2 (preview 4) and `golang.org/x/sync/errgroup`
 
 # Motivation
 The AWS Go SDK is fairly low level. It acts as a kind of wrapper around the AWS REST API.
@@ -113,5 +113,7 @@ in `ddbmap/ddbconv` to help users implement `Itemable`.
 * Test range early termination
 * Test other set types, null
 * Item API README example
-* Cleanup example package
-* Finish docs for `ddbconv`, `DynamoMap
+* Finish docs for `DynamoMap`
+* Add Batch API?
+* Add reflection-based no-panic API?
+
