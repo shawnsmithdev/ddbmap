@@ -16,7 +16,7 @@ import (
 const (
 	// How long between checks while waiting for a newly created table to become usable.
 	creatingPollDuration = time.Second * 10
-	// The default TimeToLive attribute name to use if the TTL duration is set but the name is not.
+	// DefaultTimeToLiveName is used if the TTL duration is set but the ttl attribute name is not.
 	DefaultTimeToLiveName = "TTL"
 )
 
