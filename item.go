@@ -66,7 +66,7 @@ func (item Item) GetAsStringSet(attr string) []string {
 }
 
 // GetAsBool returns the attribute of this item with the given name as a bool.
-// The result is also false if the value is not there or not a boolean.
+// The result is also false if the value is not present or not a boolean.
 func (item Item) GetAsBool(attr string) bool {
 	return ddbconv.DecodeBool(item[attr])
 }
@@ -186,5 +186,18 @@ func UnmarshallerForType(template interface{}) ItemUnmarshaller {
 			return nil, err
 		}
 		return reflect.ValueOf(val).Elem().Interface(), nil
+	}
+}
+
+// MarshalItem will marshal a value into an Item using dynamodbattribute.MarshalMap,
+// unless this can be avoided because the value is already an Item or is Itemable.
+func MarshalItem(val interface{}) (Item, error) {
+	switch valAsType := val.(type) {
+	case Item:
+		return valAsType, nil
+	case Itemable:
+		return valAsType.AsItem(), nil
+	default:
+		return dynamodbattribute.MarshalMap(val)
 	}
 }

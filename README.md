@@ -7,7 +7,7 @@
 
 It is not complete. Until a commit is tagged, the API may be broken or changed for any reason without notice.
 
-It currently depends on AWS Go SDK v2 (preview 4) and `golang.org/x/sync/errgroup`
+It currently depends on AWS Go SDK v2 (preview 4) and `golang.org/x/sync`
 
 # Motivation
 The AWS Go SDK is fairly low level. It acts as a kind of wrapper around the AWS REST API.
@@ -77,16 +77,16 @@ func main() {
     // Assumes table already exists, will auto-discover key names
     tCfg := ddbmap.TableConfig{
         TableName:         "TestTable",
-        ValueUnmarshaller: ddbmap.UnmarshallerForType(Person{})
+        ValueUnmarshaller: ddbmap.UnmarshallerForType(Person{}),
     }
     people, _ := tCfg.NewMap(awsCfg)
 
     // put
-    p1 := Person{PersonKey: {Id: 1}, Name: "Bob", Age: 20}
+    p1 := Person{PersonKey: PersonKey{Id: 1}, Name: "Bob", Age: 20}
     people.Store(p1.PersonKey, p1)
 
     // get
-    p2, ok := people.Load(p2.PersonKey)
+    p2, ok := people.Load(p1.PersonKey)
     if ok {
         fmt.Println(p2.(Person))
     }

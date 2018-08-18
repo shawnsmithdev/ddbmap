@@ -1,23 +1,35 @@
 // Package ddbmap presents a map-like interface for DynamoDB tables.
-package ddbmap
+package ddbmap // import "github.com/shawnsmithdev/ddbmap"
 
 import (
 	"context"
 	"fmt"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ddb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb/dynamodbattribute"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/expression"
+	"github.com/shawnsmithdev/ddbmap/ddbconv"
 	"golang.org/x/sync/errgroup"
 	"log"
+	"time"
+)
+
+const (
+	// How long between checks while waiting for a newly created table to become usable.
+	creatingPollDuration = time.Second * 10
+	// The default TimeToLive attribute name to use if the TTL duration is set but the name is not.
+	DefaultTimeToLiveName = "TTL"
 )
 
 var (
 	// Indicates that a range operation consumer caused an early termination by returning false. Do not return it.
 	errEarlyTermination = fmt.Errorf("ddbmap early termination")
+
+	// interface checks
+	_ ItemMap = &DynamoMap{}
+	_ Map     = &DynamoMap{}
 )
 
-// DynamoMap implements ItemMap (with pointer methods), backed by a DynamoDB table.
+// DynamoMap is a map view of a DynamoDB table.
 // The reflection-based api (ddb.Map) will panic on any unhandled AWS client error.
 // The Itemable api (ddb.ItemMap) returns errors instead and so will not panic.
 type DynamoMap struct {
@@ -45,21 +57,16 @@ func (d *DynamoMap) debug(vals ...interface{}) {
 	}
 }
 
-// MarshalItem will marshal a value into an Item using dynamodbattribute.MarshalMap,
-// unless this can be avoided because the value is already an Item or is Itemable.
-func MarshalItem(val interface{}) (Item, error) {
-	switch valAsType := val.(type) {
-	case Item:
-		return valAsType, nil
-	case Itemable:
-		return valAsType.AsItem(), nil
-	default:
-		return dynamodbattribute.MarshalMap(val)
+func (d *DynamoMap) unmarshalKey(item Item) interface{} {
+	if d.KeyUnmarshaller == nil {
+		return nil
 	}
+	result, err := d.KeyUnmarshaller(d.ToKeyItem(item))
+	d.forbidErr(err)
+	return result
 }
 
-func (d *DynamoMap) unmarshalItem(item Item) interface{} {
-	// do not unmarshal if user has not configured an unmarshaller
+func (d *DynamoMap) unmarshalValue(item Item) interface{} {
 	if d.ValueUnmarshaller == nil {
 		return item
 	}
@@ -68,36 +75,48 @@ func (d *DynamoMap) unmarshalItem(item Item) interface{} {
 	return result
 }
 
-// check table description, optionally using result to set key configuration, returning true if table is active.
-func (d *DynamoMap) describeTable(setKeys bool) (active bool, err error) {
+func (d *DynamoMap) describeTable(setKeys bool) (status ddb.TableStatus, err error) {
 	input := &ddb.DescribeTableInput{TableName: &d.TableName}
-	d.debug("describe table request input:", input)
-	dtReq := d.Client.DescribeTableRequest(input)
-	dtResp, err := dtReq.Send()
-	d.debug("describe table response:", dtResp, ", error:", err)
-	if err != nil {
-		if ddb.ErrCodeResourceNotFoundException == getErrCode(err) {
-			return false, nil
+	var dtResp *ddb.DescribeTableOutput
+
+	for {
+		d.debug("describe table request input:", input)
+		dtReq := d.Client.DescribeTableRequest(input)
+		dtResp, err = dtReq.Send()
+		d.debug("describe table response:", dtResp, ", error:", err)
+		if err != nil {
+			if ddb.ErrCodeResourceNotFoundException == getErrCode(err) {
+				return "", nil
+			}
+			return "", err
 		}
-		return false, err
-	}
-	status := dtResp.Table.TableStatus
-	d.debug("table status:", status)
-	active = status == ddb.TableStatusActive
-	if active {
-		if setKeys && "" == d.HashKeyName {
-			for _, keySchema := range dtResp.Table.KeySchema {
-				if keySchema.KeyType == ddb.KeyTypeHash {
-					d.HashKeyName = *keySchema.AttributeName
-					d.debug("found hash key:", d.HashKeyName)
-				} else {
-					d.RangeKeyName = *keySchema.AttributeName
-					d.debug("found range key:", d.RangeKeyName)
+
+		status = dtResp.Table.TableStatus
+		d.debug("table status:", status)
+
+		switch status {
+		case ddb.TableStatusCreating: // Wait for creating
+			d.log("waiting for status:", status)
+			time.Sleep(creatingPollDuration)
+			continue
+		case ddb.TableStatusDeleting: // Give up if deleting
+			d.log("cannot use table being deleted")
+			return status, fmt.Errorf("cannot use table being deleted")
+		default: // Table usable, check key names
+			if setKeys && "" == d.HashKeyName {
+				for _, keySchema := range dtResp.Table.KeySchema {
+					if keySchema.KeyType == ddb.KeyTypeHash {
+						d.HashKeyName = *keySchema.AttributeName
+						d.debug("found hash key:", d.HashKeyName)
+					} else {
+						d.RangeKeyName = *keySchema.AttributeName
+						d.debug("found range key:", d.RangeKeyName)
+					}
 				}
 			}
+			return status, nil
 		}
 	}
-	return active, nil
 }
 
 // creates a new table
@@ -127,6 +146,9 @@ func (d *DynamoMap) createTable() error {
 		ProvisionedThroughput: &ddb.ProvisionedThroughput{
 			ReadCapacityUnits:  aws.Int64(int64(d.CreateTableReadCapacity)),
 			WriteCapacityUnits: aws.Int64(int64(d.CreateTableWriteCapacity)),
+		},
+		SSESpecification: &ddb.SSESpecification{
+			Enabled: aws.Bool(d.ServerSideEncryption),
 		},
 	}
 	d.debug("create table request input:", input)
@@ -186,7 +208,7 @@ func (d *DynamoMap) Load(key interface{}) (value interface{}, ok bool) {
 	d.forbidErr(err)
 	resultItem, ok, err := d.load(keyItem)
 	d.forbidErr(err)
-	return d.unmarshalItem(resultItem), ok
+	return d.unmarshalValue(resultItem), ok
 }
 
 func (d *DynamoMap) store(item Item, condition *expression.ConditionBuilder) error {
@@ -200,6 +222,14 @@ func (d *DynamoMap) store(item Item, condition *expression.ConditionBuilder) err
 			return err
 		}
 		input.ConditionExpression = condExpr.Condition()
+	}
+	if d.TimeToLiveDuration > 0 {
+		ttl := ddbconv.EncodeInt(int(time.Now().Add(d.TimeToLiveDuration).Unix()))
+		if "" == d.TimeToLiveName {
+			input.Item[DefaultTimeToLiveName] = ttl
+		} else {
+			input.Item[d.TimeToLiveName] = ttl
+		}
 	}
 	d.debug("store request input:", input)
 	resp, err := d.Client.PutItemRequest(input).Send()
@@ -218,6 +248,7 @@ func (d *DynamoMap) Store(_, val interface{}) {
 	d.forbidErr(err)
 	d.forbidErr(d.store(valItem, nil))
 }
+
 func (d *DynamoMap) storeItemIfAbsent(item Item) (stored bool, err error) {
 	noKey := expression.Name(d.HashKeyName).AttributeNotExists()
 	err = d.store(item, &noKey)
@@ -274,8 +305,8 @@ func (d *DynamoMap) LoadOrStoreItem(val Itemable) (actual Item, loaded bool, err
 func (d *DynamoMap) LoadOrStore(_, val interface{}) (interface{}, bool) {
 	valItem, err := MarshalItem(val)
 	d.forbidErr(err)
-	actual, stored, err2 := d.loadOrStore(valItem)
-	d.forbidErr(err2)
+	actual, stored, err := d.loadOrStore(valItem)
+	d.forbidErr(err)
 	return actual, stored
 }
 
@@ -359,14 +390,14 @@ func (d *DynamoMap) RangeItems(consumer func(Item) bool) error {
 	}
 
 	// parallel
-	eg, ctx := errgroup.WithContext(context.Background())
+	group, ctx := errgroup.WithContext(context.Background())
 	for i := 0; i < d.ScanConcurrency; i++ {
 		workerId := i
-		eg.Go(func() error {
+		group.Go(func() error {
 			return d.rangeSegment(ctx, consumer, workerId)
 		})
 	}
-	err := eg.Wait()
+	err := group.Wait()
 	if err == errEarlyTermination {
 		return nil
 	}
@@ -375,9 +406,10 @@ func (d *DynamoMap) RangeItems(consumer func(Item) bool) error {
 
 // Range iterates over the map and applies the given function to every value.
 // Iteration eventually stops if the given function returns false.
-// The first argument to the consumer is always nil and should be ignored.
-func (d *DynamoMap) Range(consumer func(_, value interface{}) bool) {
+// The consumed key will be nil unless KeyUnmarshaller is set.
+// The consumed value will be an Item unless ValueUnmarshaller is set.
+func (d *DynamoMap) Range(consumer func(key, value interface{}) bool) {
 	d.forbidErr(d.RangeItems(func(item Item) bool {
-		return consumer(nil, d.unmarshalItem(item))
+		return consumer(d.unmarshalKey(item), d.unmarshalValue(item))
 	}))
 }

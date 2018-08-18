@@ -3,6 +3,8 @@ package ddbmap
 import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/awserr"
+	"io"
+	"log"
 )
 
 func logErr(err error, logger aws.LoggerFunc) {
@@ -35,4 +37,8 @@ func forbidErr(err error, logger aws.LoggerFunc) {
 		logger("unhandled error, will now panic")
 		panic(err)
 	}
+}
+
+func logTo(w io.Writer) aws.Logger {
+	return aws.LoggerFunc(log.New(w, "[ddbmap]", log.Lshortfile|log.Lmicroseconds|log.Ltime).Println)
 }

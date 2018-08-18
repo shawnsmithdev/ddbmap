@@ -1,9 +1,11 @@
 package ddbmap
 
 import (
+	"errors"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ddb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"log"
+	"os"
+	"time"
 )
 
 // CreateTableOptions contain values used when creating new DynamoDB tables
@@ -20,6 +22,8 @@ type CreateTableOptions struct {
 	HashKeyType ddb.ScalarAttributeType
 	// The type of the range key attribute, if any.
 	RangeKeyType ddb.ScalarAttributeType
+	// If true, Server Side Encryption (SSE) is enabled.
+	ServerSideEncryption bool
 }
 
 // TableConfig holds details about a specific DynamoDB table and some options for using it.
@@ -30,11 +34,20 @@ type TableConfig struct {
 	HashKeyName string
 	// The name of the range key attribute, if any.
 	RangeKeyName string
-	// The name of the numeric version field, if any. Used only for those conditional methods that use versions.
+	// The name of the numeric version field, if any.
+	// Used only for those conditional methods that use versions.
 	VersionName string
-	// The concurrency used in table scans (Range calls). If less than 2, scan is done serially.
+	// The name of the ttl field, if any.
+	// If empty and TimeToLiveDuration is not zero, "ttl" will be used.
+	// A ttl field should be either an int type or dynamodbattribute.UnixTime.
+	TimeToLiveName string
+	// The Time To Live Duration, if any.
+	TimeToLiveDuration time.Duration
+	// The concurrency used in table scans (Range calls).
+	// If less than 2, scan is done serially.
 	ScanConcurrency int
-	// If the client should use strongly consistent reads. This costs twice as much as eventually consistent reads.
+	// If the client should use strongly consistent reads.
+	// This costs twice as much as eventually consistent reads.
 	ReadWithStrongConsistency bool
 	// If true, debug logging in this library is enabled.
 	Debug bool
@@ -42,9 +55,15 @@ type TableConfig struct {
 	Logger aws.Logger
 	// ValueUnmarshaller can be used to change what is returned by Load, LoadOrStore, and Range.
 	// These methods return an Item if ValueUnmarshaller is nil.
-	// If ValueUnmarshaller is not nil, the result of passing the item to the unmarshaller is returned instead.
+	// If ValueUnmarshaller is not nil, the result of passing the item
+	// to the unmarshaller is returned instead.
 	ValueUnmarshaller ItemUnmarshaller
-	// Options for creating tables
+	// KeyUnmarshaller can be used to change what keys are returned by Range.
+	// Range keys are Item if KeyUnmarshaller is nil.
+	// If KeyUnmarshaller is not nil, the result of passing the item
+	// to the unmarshaller is returned instead as the key.
+	KeyUnmarshaller ItemUnmarshaller
+	// Options for creating the table
 	CreateTableOptions
 }
 
@@ -61,14 +80,15 @@ func (tc TableConfig) ToKeyItem(item Item) Item {
 	return item.Project(tc.HashKeyName)
 }
 
-// NewMap creates an map view of a DynamoDB table from a TableConfig.
+// NewMap creates a map view of a DynamoDB table from a TableConfig.
+// If the table does not exist or is being deleted or there is an error, the pointer result will be nil
 // If ScanTableIfNotExists is true and the table does not exist, it will be created.
 // If ScanTableIfNotExists is false and the key names are not set, they will be looked up.
 // If the logger has not been configured, either the AWS config's logger (if present) or stdout will be used.
 func (tc TableConfig) NewMap(cfg aws.Config) (*DynamoMap, error) {
 	if tc.Logger == nil {
 		if cfg.Logger == nil {
-			tc.Logger = aws.LoggerFunc(log.Println)
+			tc.Logger = logTo(os.Stdout)
 		} else {
 			tc.Logger = cfg.Logger
 		}
@@ -77,17 +97,32 @@ func (tc TableConfig) NewMap(cfg aws.Config) (*DynamoMap, error) {
 		TableConfig: tc,
 		Client:      ddb.New(cfg),
 	}
-	if im.CreateTableIfAbsent {
-		if ok, err := im.describeTable(false); !ok {
+	if tc.CreateTableIfAbsent {
+		var (
+			status ddb.TableStatus
+			err    error
+		)
+		for {
+			status, err = im.describeTable(false)
 			if err != nil {
 				return nil, err
 			}
-			if err = im.createTable(); err != nil {
-				return nil, err
+			switch status {
+			case "":
+				if err = im.createTable(); err != nil {
+					return nil, err
+				}
+			case ddb.TableStatusDeleting:
+				return nil, errors.New("table is being deleted")
+			default:
+				return im, nil
 			}
 		}
-	} else if "" == im.HashKeyName {
-		im.describeTable(true)
+	} else if "" == tc.HashKeyName {
+		if status, err := im.describeTable(true); err != nil {
+			return nil, err
+		} else if "" == status {
+		}
 	}
 	return im, nil
 }
