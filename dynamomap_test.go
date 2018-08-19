@@ -49,17 +49,15 @@ func checkMap(people Map, t *testing.T) {
 		t.Fatal("expected value from get doesn't exist")
 	}
 
-	// Test and log time to live, and save unpredictable ttl in expected value
-	if p2AsPerson, ok := p2.(person); ok {
-		ttl := time.Time(p2AsPerson.TTL)
-		remaining := ttl.Sub(time.Now())
+	// If a dynamodb map, test ttl and save in expected value
+	if _, ok := people.(*DynamoMap); ok {
+		ttl := p2.(person).TTL
+		elapsed := testTTL - time.Time(ttl).Sub(time.Now())
 		// some small amount of ttl time should have elapsed
-		if remaining > testTTL || testTTL-remaining > testMaxElapsedTTL {
-			t.Fatal("remaining ttl is invalid:", remaining)
+		if elapsed < 0 || elapsed > testMaxElapsedTTL {
+			t.Fatal("remaining ttl elapsed:", elapsed)
 		}
-		p1.TTL = p2AsPerson.TTL
-	} else {
-		t.Fatal("expected type from get doesn't match")
+		p1.TTL = ttl
 	}
 	// compare everything else
 	if !reflect.DeepEqual(p2, p1) {
