@@ -8,8 +8,9 @@ env:
     - AWS_DEFAULT_REGION="us-west-2"
     - DDBMAP_INTEG_ENDPOINT="http://localhost:8000"
     - DDBMAP_INTEG_DEBUG=1
+    - G111MODULE=on
 
-gobuild_args: "-tags integration"
+gobuild_args: "-v -tags integration"
 go:
   - "1.11rc1"
 
