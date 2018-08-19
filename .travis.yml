@@ -2,11 +2,12 @@ language: go
 sudo: required
 
 env:
-  - AWS_ACCESS_KEY_ID="foo"
-  - AWS_SECRET_ACCESS_KEY="bar"
-  - AWS_DEFAULT_REGION="us-west-2"
-  - DDBMAP_INTEG_ENDPOINT="http://localhost:8000"
-  - DDBMAP_INTEG_DEBUG=1
+  global:
+    - AWS_ACCESS_KEY_ID="foo"
+    - AWS_SECRET_ACCESS_KEY="bar"
+    - AWS_DEFAULT_REGION="us-west-2"
+    - DDBMAP_INTEG_ENDPOINT="http://localhost:8000"
+    - DDBMAP_INTEG_DEBUG=1
 
 gobuild_args: "-tags integration"
 go:
