@@ -1,6 +1,7 @@
 language: go
 sudo: required
 
+gobuild_args: "-tags integration"
 go:
   - "1.11rc1"
 
