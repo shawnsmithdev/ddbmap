@@ -38,7 +38,7 @@ type TableConfig struct {
 	// Used only for those conditional methods that use versions.
 	VersionName string
 	// The name of the ttl field, if any.
-	// If empty and TimeToLiveDuration is not zero, "ttl" will be used.
+	// If empty and TimeToLiveDuration is not zero, DefaultTimeToLiveName ("TTL") will be used.
 	// A ttl field should be either an int type or dynamodbattribute.UnixTime.
 	TimeToLiveName string
 	// The Time To Live Duration, if any.
@@ -55,13 +55,13 @@ type TableConfig struct {
 	Logger aws.Logger
 	// ValueUnmarshaller can be used to change what is returned by Load, LoadOrStore, and Range.
 	// These methods return an Item if ValueUnmarshaller is nil.
-	// If ValueUnmarshaller is not nil, the result of passing the item
-	// to the unmarshaller is returned instead.
+	// If ValueUnmarshaller is not nil, the result of passing the value item to the unmarshaller
+	// is returned as the value instead of the item.
 	ValueUnmarshaller ItemUnmarshaller
 	// KeyUnmarshaller can be used to change what keys are returned by Range.
-	// Range keys are Item if KeyUnmarshaller is nil.
-	// If KeyUnmarshaller is not nil, the result of passing the item
-	// to the unmarshaller is returned instead as the key.
+	// Range keys are nil if KeyUnmarshaller is nil.
+	// If KeyUnmarshaller is not nil, the result of passing an item with only the key(s) to the unmarshaller
+	// is returned as the key instead of nil.
 	KeyUnmarshaller ItemUnmarshaller
 	// Options for creating the table
 	CreateTableOptions
@@ -81,7 +81,7 @@ func (tc TableConfig) ToKeyItem(item Item) Item {
 }
 
 // NewMap creates a map view of a DynamoDB table from a TableConfig.
-// If the table does not exist or is being deleted or there is an error, the pointer result will be nil
+// If the table does not exist or is being deleted or there is an error, the pointer result will be nil.
 // If ScanTableIfNotExists is true and the table does not exist, it will be created.
 // If ScanTableIfNotExists is false and the key names are not set, they will be looked up.
 // If the logger has not been configured, either the AWS config's logger (if present) or stdout will be used.
