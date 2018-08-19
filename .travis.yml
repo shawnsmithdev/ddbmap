@@ -1,6 +1,13 @@
 language: go
 sudo: required
 
+env:
+  - AWS_ACCESS_KEY_ID="foo"
+  - AWS_SECRET_ACCESS_KEY="bar"
+  - AWS_DEFAULT_REGION="us-west-2"
+  - DDBMAP_INTEG_ENDPOINT="http://localhost:8000"
+  - DDBMAP_INTEG_DEBUG=1
+
 gobuild_args: "-tags integration"
 go:
   - "1.11rc1"
@@ -10,8 +17,8 @@ services:
 
 before_install:
   - docker pull dwmkerr/dynamodb
-  - docker run -it -p 8000:8000 dwmkerr/dynamodb -sharedDb -inMemory
-  - docker ps
+  - docker run -d -p 8000:8000 dwmkerr/dynamodb -sharedDb -inMemory
+  - docker ps -a
 
 install: true
 
