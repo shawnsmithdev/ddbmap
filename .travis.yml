@@ -20,6 +20,7 @@ before_install:
   - docker pull dwmkerr/dynamodb
   - docker run -d -p 8000:8000 dwmkerr/dynamodb -sharedDb -inMemory
   - docker ps -a
+  - go get -u
 
 install: true
 
