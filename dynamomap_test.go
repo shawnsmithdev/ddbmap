@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws/external"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/dynamodbattribute"
+	"github.com/shawnsmithdev/ddbmap/ddbconv"
 	"os"
 	"reflect"
 	"sync"
@@ -15,13 +16,14 @@ import (
 )
 
 const (
-	endpointEnv       = "DDBMAP_INTEG_ENDPOINT"
-	debugEnv          = "DDBMAP_INTEG_DEBUG"
-	testTableName     = "TestTable"
-	hashKeyName       = "Id"
-	retries           = 16
-	testTTL           = 2 * time.Hour
-	testMaxElapsedTTL = time.Minute
+	endpointEnv         = "DDBMAP_INTEG_ENDPOINT"
+	debugEnv            = "DDBMAP_INTEG_DEBUG"
+	testPeopleTableName = "TestPeopleTable"
+	testCarsTableName   = "TestCarsTable"
+	hashKeyName         = "Id"
+	retries             = 16
+	testTTL             = 2 * time.Hour
+	testMaxElapsedTTL   = time.Minute
 )
 
 // Users can choose to define a distinct hashable struct type for keys, to better simulate a hashmap.
@@ -38,9 +40,87 @@ type person struct {
 	TTL dynamodbattribute.UnixTime
 }
 
+type car struct {
+	Id      string
+	Name    string
+	Weight  int
+	Picture []byte
+}
+
+func (c *car) AsItem() Item {
+	result := Item{
+		"Id":     ddbconv.EncodeString(c.Id),
+		"Weight": ddbconv.EncodeInt(c.Weight),
+	}
+	if len(c.Name) > 0 {
+		result["Name"] = ddbconv.EncodeString(c.Name)
+	}
+	if len(c.Picture) > 0 {
+		result["Picture"] = ddbconv.EncodeBinary(c.Picture)
+	}
+	return result
+}
+
+func carFromItem(item Item) car {
+	result := car{
+		Id:      ddbconv.DecodeString(item["Id"]),
+		Name:    ddbconv.DecodeString(item["Name"]),
+		Picture: ddbconv.DecodeBinary(item["Picture"]),
+	}
+	if weight, ok := ddbconv.TryDecodeInt(item["Weight"]); ok {
+		result.Weight = weight
+	}
+	return result
+}
+
+func checkItemMap(cars ItemMap, t *testing.T) {
+	// put
+	c1 := car{
+		Id:     "a",
+		Name:   "Kit",
+		Weight: 2002,
+		// Picture: []byte{0xde, 0xad, 0xbe, 0xef},
+	}
+	err := cars.StoreItem(&c1)
+	if err != nil {
+		t.Fatal("unexpected error", err)
+	}
+
+	// get
+	item, ok, err := cars.LoadItem(&c1)
+	if !ok {
+		t.Fatal("expected value from get doesn't exist")
+	}
+	if err != nil {
+		t.Fatal("unexpected error", err)
+	}
+	c2 := carFromItem(item)
+	if !reflect.DeepEqual(c2, c1) {
+		t.Fatal("expected value from get doesn't match", c2, c1)
+	}
+	// iterate
+	exists := false
+	match := false
+	cars.RangeItems(func(item Item) bool {
+		exists = true
+		match = reflect.DeepEqual(carFromItem(item), c1)
+		return true
+	})
+	if !exists {
+		t.Fatal("expected value from scan doesn't exist")
+	}
+	if !match {
+		t.Fatal("expected value from scan doesn't match")
+	}
+}
+
 func checkMap(people Map, t *testing.T) {
 	// put
-	p1 := person{personKey: personKey{Id: 1}, Name: "Bob", Age: 20}
+	p1 := person{
+		personKey: personKey{Id: 1},
+		Name:      "Bob",
+		Age:       20,
+	}
 	people.Store(p1.personKey, p1)
 
 	// get
@@ -90,7 +170,7 @@ func (e testEnv) useEndpoint(cfg *aws.Config) {
 	cfg.EndpointResolver = aws.ResolveWithEndpointURL(e.endpoint)
 }
 
-func getTestEnv(t *testing.T) testEnv {
+func getTestEnv(t *testing.T) (testEnv, aws.Config) {
 	var result testEnv
 	if endpoint, ok := os.LookupEnv(endpointEnv); ok && endpoint != "" {
 		t.Log("endpoint:", endpoint)
@@ -100,7 +180,10 @@ func getTestEnv(t *testing.T) testEnv {
 	if result.debug {
 		t.Log("debug enabled")
 	}
-	return result
+	awsCfg, _ := external.LoadDefaultAWSConfig()
+	awsCfg.Retryer = aws.DefaultRetryer{NumMaxRetries: retries}
+	result.useEndpoint(&awsCfg)
+	return result, awsCfg
 }
 
 func TestSyncMap(t *testing.T) {
@@ -108,20 +191,35 @@ func TestSyncMap(t *testing.T) {
 	checkMap(&people, t)
 }
 
-func TestDynamoMap(t *testing.T) {
-	awsCfg, _ := external.LoadDefaultAWSConfig()
-	awsCfg.Retryer = aws.DefaultRetryer{NumMaxRetries: retries}
-	env := getTestEnv(t)
-	env.useEndpoint(&awsCfg)
-
+func TestDynamoItemMap(t *testing.T) {
+	env, awsCfg := getTestEnv(t)
 	tCfg := TableConfig{
-		TableName:          testTableName,
+		TableName:       testCarsTableName,
+		HashKeyName:     hashKeyName,
+		Debug:           env.debug,
+		ScanConcurrency: 2,
+		CreateTableOptions: CreateTableOptions{
+			CreateTableIfAbsent: true,
+			HashKeyType:         dynamodb.ScalarAttributeTypeS,
+		},
+	}
+	cars, err := tCfg.NewMap(awsCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkItemMap(cars, t)
+}
+
+func TestDynamoMap(t *testing.T) {
+	env, awsCfg := getTestEnv(t)
+	tCfg := TableConfig{
+		TableName:          testPeopleTableName,
 		HashKeyName:        hashKeyName,
 		Debug:              env.debug,
 		TimeToLiveDuration: testTTL,
 		KeyUnmarshaller:    UnmarshallerForType(personKey{}),
 		ValueUnmarshaller:  UnmarshallerForType(person{}),
-		ScanConcurrency: 2,
+		ScanConcurrency:    2,
 		CreateTableOptions: CreateTableOptions{
 			CreateTableIfAbsent: true,
 			HashKeyType:         dynamodb.ScalarAttributeTypeN,

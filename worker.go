@@ -20,7 +20,7 @@ func (s scanWorker) withId(workerId int, input ddb.ScanInput) *scanWorker {
 	return &s
 }
 
-func (s scanWorker) debug(input ...interface{}) {
+func (s *scanWorker) debug(input ...interface{}) {
 	s.table.debug(append(input, "worker:", s.workerId)...)
 }
 
