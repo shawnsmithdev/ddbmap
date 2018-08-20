@@ -75,7 +75,11 @@ func (d *DynamoMap) unmarshalValue(item Item) interface{} {
 	return result
 }
 
-func (d *DynamoMap) describeTable(setKeys bool) (status ddb.TableStatus, err error) {
+// DescribeTable checks the table description, returning the table status or any errors.
+// If the status is CREATING, the call will poll waiting for the status to change.
+// If the table does not exist, the status will be empty.
+// If setKeys is true, the keys will be set using the table description.
+func (d *DynamoMap) DescribeTable(setKeys bool) (status ddb.TableStatus, err error) {
 	input := &ddb.DescribeTableInput{TableName: &d.TableName}
 	var dtResp *ddb.DescribeTableOutput
 
@@ -103,7 +107,7 @@ func (d *DynamoMap) describeTable(setKeys bool) (status ddb.TableStatus, err err
 			d.log("cannot use table being deleted")
 			return status, fmt.Errorf("cannot use table being deleted")
 		default: // Table usable, check key names
-			if setKeys && "" == d.HashKeyName {
+			if setKeys {
 				for _, keySchema := range dtResp.Table.KeySchema {
 					if keySchema.KeyType == ddb.KeyTypeHash {
 						d.HashKeyName = *keySchema.AttributeName
@@ -119,8 +123,8 @@ func (d *DynamoMap) describeTable(setKeys bool) (status ddb.TableStatus, err err
 	}
 }
 
-// creates a new table
-func (d *DynamoMap) createTable() error {
+// CreateTable creates a new table.
+func (d *DynamoMap) CreateTable() error {
 	schema := []ddb.KeySchemaElement{
 		{AttributeName: &d.HashKeyName, KeyType: ddb.KeyTypeHash},
 	}
@@ -335,67 +339,29 @@ func (d *DynamoMap) StoreIfVersion(val interface{}, version int64) (ok bool) {
 	return ok
 }
 
-func (d *DynamoMap) rangeSegment(ctx context.Context, consumer func(Item) bool, workerId int) error {
-	d.debug("starting scan worker: ", workerId)
-	var segment *int64
-	var totalSegments *int64
-	if d.ScanConcurrency > 1 {
-		segment = aws.Int64(int64(workerId))
-		totalSegments = aws.Int64(int64(d.ScanConcurrency))
-	}
-	input := &ddb.ScanInput{
-		TableName:      &d.TableName,
-		ConsistentRead: &d.ReadWithStrongConsistency,
-		Select:         ddb.SelectAllAttributes,
-		Segment:        segment,
-		TotalSegments:  totalSegments,
-	}
-	for {
-		// check for errors or early termination on other workers
-		if ctx != nil {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-		}
-		// fetch a page
-		d.debug("scan request input:", input, ", worker:", workerId)
-		resp, err := d.Client.ScanRequest(input).Send()
-		d.debug("scan response:", resp, ", worker:", workerId, ", error:", err)
-		if err != nil {
-			d.debug("scan worker had error:", err, ", worker:", workerId)
-			return err
-		}
-		// run consumer on each record in page
-		for _, item := range resp.Items {
-			if !consumer(item) {
-				d.debug("scan worker received early termination, worker:", workerId)
-				return errEarlyTermination
-			}
-		}
-		// check for next page
-		if resp.LastEvaluatedKey == nil {
-			d.debug("scan worker done, worker:", workerId)
-			return nil
-		}
-		input.ExclusiveStartKey = resp.LastEvaluatedKey
-	}
-}
-
 // RangeItems calls the given consumer for each stored item.
 // Iteration eventually stops if the given function returns false.
 func (d *DynamoMap) RangeItems(consumer func(Item) bool) error {
-	// serial
-	if d.ScanConcurrency <= 1 {
-		return d.rangeSegment(nil, consumer, 0)
+	input := ddb.ScanInput{
+		TableName:      &d.TableName,
+		ConsistentRead: &d.ReadWithStrongConsistency,
+		Select:         ddb.SelectAllAttributes,
+	}
+	worker := scanWorker{
+		input:    &input,
+		table:    d,
+		consumer: consumer,
 	}
 
-	// parallel
+	if d.ScanConcurrency <= 1 {
+		return worker.work()
+	}
+
 	group, ctx := errgroup.WithContext(context.Background())
+	input.TotalSegments = aws.Int64(int64(d.ScanConcurrency))
+	worker.ctx = ctx
 	for i := 0; i < d.ScanConcurrency; i++ {
-		workerId := i
-		group.Go(func() error {
-			return d.rangeSegment(ctx, consumer, workerId)
-		})
+		group.Go(worker.withId(i, input).work)
 	}
 	err := group.Wait()
 	if err == errEarlyTermination {

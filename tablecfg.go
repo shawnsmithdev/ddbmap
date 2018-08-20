@@ -103,13 +103,13 @@ func (tc TableConfig) NewMap(cfg aws.Config) (*DynamoMap, error) {
 			err    error
 		)
 		for {
-			status, err = im.describeTable(false)
+			status, err = im.DescribeTable(false)
 			if err != nil {
 				return nil, err
 			}
 			switch status {
 			case "":
-				if err = im.createTable(); err != nil {
+				if err = im.CreateTable(); err != nil {
 					return nil, err
 				}
 			case ddb.TableStatusDeleting:
@@ -119,7 +119,7 @@ func (tc TableConfig) NewMap(cfg aws.Config) (*DynamoMap, error) {
 			}
 		}
 	} else if "" == tc.HashKeyName {
-		if status, err := im.describeTable(true); err != nil {
+		if status, err := im.DescribeTable(true); err != nil {
 			return nil, err
 		} else if "" == status {
 		}

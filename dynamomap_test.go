@@ -121,6 +121,7 @@ func TestDynamoMap(t *testing.T) {
 		TimeToLiveDuration: testTTL,
 		KeyUnmarshaller:    UnmarshallerForType(personKey{}),
 		ValueUnmarshaller:  UnmarshallerForType(person{}),
+		ScanConcurrency: 2,
 		CreateTableOptions: CreateTableOptions{
 			CreateTableIfAbsent: true,
 			HashKeyType:         dynamodb.ScalarAttributeTypeN,

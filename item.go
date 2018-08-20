@@ -16,82 +16,6 @@ func (item Item) AsItem() Item {
 	return item
 }
 
-// GetAsBinary returns the attribute of this item with the given name as a byte slice,
-// which may be empty if the attribute is not present or not binary data.
-func (item Item) GetAsBinary(attr string) []byte {
-	return ddbconv.DecodeBinary(item[attr])
-}
-
-// GetAsBinarySet returns the attribute of this item with the given name as a slice of byte slices,
-// which may be empty if the attribute is not present or not a binary set.
-func (item Item) GetAsBinarySet(attr string) [][]byte {
-	return ddbconv.DecodeBinarySet(item[attr])
-}
-
-// GetAsInt returns the attribute of this item with the given name as an int,
-// and will panic if the attribute is not present or is not an integral number.
-// If the attribute is optional, use TryGetAsNumber instead.
-func (item Item) GetAsInt(attr string) int {
-	return ddbconv.DecodeInt(item[attr])
-}
-
-// TryGetAsInt returns the attribute of this item with the given name as an int,
-// with a false ok result if the attribute is not present or is not an integral number.
-func (item Item) TryGetAsInt(attr string) (val int, ok bool) {
-	if n, present := item[attr]; present {
-		return ddbconv.TryDecodeInt(n)
-	}
-	return 0, false
-}
-
-// GetAsIntSet returns the attribute of this item with the given name as an slice of ints,
-// which may be empty if the attribute is not present or is not an number set with integral values.
-func (item Item) GetAsIntSet(attr string) []int {
-	if n, present := item[attr]; present {
-		return ddbconv.DecodeIntSet(n)
-	}
-	return []int{}
-}
-
-// GetAsString returns the attribute of this item with the given name as a string,
-// which may be empty if the attribute if not present or not a string.
-func (item Item) GetAsString(attr string) string {
-	return ddbconv.DecodeString(item[attr])
-}
-
-// GetAsStringSet returns the attribute of this item with the given name as a slice of strings,
-// which may be empty if the attribute if not present or not a string set.
-func (item Item) GetAsStringSet(attr string) []string {
-	return ddbconv.DecodeStringSet(item[attr])
-}
-
-// GetAsBool returns the attribute of this item with the given name as a bool.
-// The result is also false if the value is not present or not a boolean.
-func (item Item) GetAsBool(attr string) bool {
-	return ddbconv.DecodeBool(item[attr])
-}
-
-// TryGetAsBool returns the attribute of this item with the given name as a bool.
-// The ok result returns true if the value was present and a boolean.
-func (item Item) TryGetAsBool(attr string) (val bool, ok bool) {
-	if b, present := item[attr]; present {
-		return ddbconv.TryDecodeBool(b)
-	}
-	return false, false
-}
-
-// GetAsMap returns the map attribute of this item with the given name as an Item.
-// The result will be empty if the value is not present or not a map.
-func (item Item) GetAsMap(attr string) Item {
-	return ddbconv.DecodeMap(item[attr])
-}
-
-// GetAsList returns the map attribute of this item with the given name as a slice of AttributeValues.
-// The result with be empty if the value is not present or not a map.
-func (item Item) GetAsList(attr string) []ddb.AttributeValue {
-	return ddbconv.DecodeList(item[attr])
-}
-
 // Exists returns true if the given attribute exists, even if it is null.
 func (item Item) Exists(attr string) bool {
 	_, ok := item[attr]
@@ -132,11 +56,8 @@ type Itemable interface {
 	AsItem() Item
 }
 
-// ItemMap is a Map that supports Itemable types and more conditional operations.
-// Note that DynamoDB key(s) include a hash key, and optionally a range key.
+// ItemMap is like Map except that it supports Itemable types and more conditional operations.
 type ItemMap interface {
-	Map
-
 	// DeleteItem deletes any existing item with the same key(s) as the given item.
 	DeleteItem(keys Itemable) error
 
