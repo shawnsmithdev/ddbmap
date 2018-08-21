@@ -13,6 +13,7 @@ go get -u github.com/aws/aws-sdk-go-v2
 go get -u golang.org/x/sync
 ```
 
+The current tagged version is v0.0.x, which [implies](https://tip.golang.org/cmd/go/#hdr-Module_compatibility_and_semantic_versioning) that users should have *no expectations of stability or backwards compatibility*. This is especially true while AWS Go SDK v2 is still in unreleased preview.
 
 # Motivation
 The AWS Go SDK is fairly low level. It acts as a kind of wrapper around the AWS REST API.
@@ -23,23 +24,15 @@ Also, it is sometimes good to view a DynamoDB table as simply a cloud-based hash
 awkward designs that can arise from trying to force a traditional database mindset into the DynamoDB storage model,
 such as a proliferation of global secondary indexes or overuse of scanning.
 
-This library ignores some of the features of DynamoDB, such as range key queries and batching,
-to provide a simplified API for users that only need a limited subset of DynamoDB's features.
+This library intentionally ignores some of the features of DynamoDB, such as range key queries and batching,
+to provide a simplified API.
 
 * Get a single record
 * Put a single record
 * Delete a single record
-* Conditional Put If Absent
-* Iterate over all records (serially or in parallel)
+* Conditional Put (if absent, or by numerical version)
+* Iterate over all records (optionally in parallel)
 
-# Conditional Updates (versions)
-If users wishes to do
-[conditional updates](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/WorkingWithItems.html#WorkingWithItems.ConditionalUpdate),
-where the condition is stronger than just a record's presence or absence, they should define a numerical version field
-and configure `VersionName` in their `TableConfig` to the name of that field. Dynamo can support conditional operations
-on any field, but the potential for losing updates is too high if update conditions depend on fields that do not
-obviously need to be changed on update. An explicit version field can help avoid an entire class of potential concurrent
-modification bugs, so that is all this library supports.
 
 # Map API
 The reflection-based API `ddbmap.Map` requires very little code to use, but be aware that
@@ -109,6 +102,15 @@ All methods that take `Itemable` will return an `error` and will not panic.
 
 Doing these kinds of type conversions can be tedious and hard to read, so a utility library is provided
 in `ddbmap/ddbconv` to help users implement `Itemable`.
+
+# Conditional Updates (versions)
+Using the Item API, if users wishes to do
+[conditional updates](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/WorkingWithItems.html#WorkingWithItems.ConditionalUpdate),
+where the condition is stronger than just a record's presence or absence, they should define a numerical version field
+and configure `VersionName` in their `TableConfig` to the name of that field. Dynamo can support conditional operations
+on any field, but the potential for losing updates is too high if update conditions depend on fields that do not
+obviously need to be changed on update. An explicit version field can help avoid an entire class of potential concurrent
+modification bugs, so that is all this library supports.
 
 # TODO
 * Test range early termination
