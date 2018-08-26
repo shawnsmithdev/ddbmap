@@ -75,7 +75,7 @@ type ItemMap interface {
 
 	// StoreIfAbsent stores the given value if there is no existing value with the same key(s),
 	// returning true if stored.
-	StoreIfAbsent(key, val interface{}) bool
+	StoreIfAbsent(val interface{}) (stored bool, err error)
 
 	// StoreItemIfAbsent stores the given item if there is no existing item with the same key(s),
 	// returning true if stored.

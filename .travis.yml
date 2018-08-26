@@ -12,7 +12,7 @@ env:
 
 gobuild_args: "-v -tags integration"
 go:
-  - "1.11rc1"
+  - "1.11"
 
 services:
   - docker

@@ -25,8 +25,8 @@ var (
 	errEarlyTermination = fmt.Errorf("ddbmap early termination")
 
 	// interface checks
-	_ ItemMap = &DynamoMap{}
 	_ Map     = &DynamoMap{}
+	_ ItemMap = &DynamoMap{}
 )
 
 // DynamoMap is a map view of a DynamoDB table.
@@ -55,15 +55,6 @@ func (d *DynamoMap) debug(vals ...interface{}) {
 	if d.Debug {
 		d.log(vals...)
 	}
-}
-
-func (d *DynamoMap) unmarshalKey(item Item) interface{} {
-	if d.KeyUnmarshaller == nil {
-		return nil
-	}
-	result, err := d.KeyUnmarshaller(d.ToKeyItem(item))
-	d.forbidErr(err)
-	return result
 }
 
 func (d *DynamoMap) unmarshalValue(item Item) interface{} {
@@ -178,10 +169,12 @@ func (d *DynamoMap) DeleteItem(key Itemable) error {
 }
 
 // Delete delete the value stored under the same key(s) as the given value, if any.
-func (d *DynamoMap) Delete(key interface{}) {
-	item, err := MarshalItem(key)
-	d.forbidErr(err)
-	d.forbidErr(d.delete(item))
+func (d *DynamoMap) Delete(key interface{}) error {
+	if item, err := MarshalItem(key); err == nil {
+		return d.delete(item)
+	} else {
+		return err
+	}
 }
 
 func (d *DynamoMap) load(key Item) (value Item, ok bool, err error) {
@@ -207,12 +200,17 @@ func (d *DynamoMap) LoadItem(key Itemable) (item Item, ok bool, err error) {
 
 // Load returns any value stored under the same key(s) as the given value, if any.
 // The ok result indicates if there a value was found for the key.
-func (d *DynamoMap) Load(key interface{}) (value interface{}, ok bool) {
+func (d *DynamoMap) Load(key interface{}) (value interface{}, ok bool, err error) {
 	keyItem, err := MarshalItem(key)
-	d.forbidErr(err)
+	if err != nil {
+		return nil, false, err
+	}
 	resultItem, ok, err := d.load(keyItem)
-	d.forbidErr(err)
-	return d.unmarshalValue(resultItem), ok
+	if err != nil {
+		return nil, false, err
+	}
+	value = d.unmarshalValue(resultItem)
+	return value, ok, nil
 }
 
 func (d *DynamoMap) store(item Item, condition *expression.ConditionBuilder) error {
@@ -247,10 +245,12 @@ func (d *DynamoMap) StoreItem(val Itemable) error {
 }
 
 // Store stores the given value. The first argument is ignored.
-func (d *DynamoMap) Store(_, val interface{}) {
-	valItem, err := MarshalItem(val)
-	d.forbidErr(err)
-	d.forbidErr(d.store(valItem, nil))
+func (d *DynamoMap) Store(val interface{}) error {
+	if valItem, err := MarshalItem(val); err == nil {
+		return d.store(valItem, nil)
+	} else {
+		return err
+	}
 }
 
 func (d *DynamoMap) storeItemIfAbsent(item Item) (stored bool, err error) {
@@ -273,12 +273,12 @@ func (d *DynamoMap) StoreItemIfAbsent(val Itemable) (stored bool, err error) {
 
 // StoreIfAbsent stores the given value if there is no existing value with the same key(s),
 // returning true if stored. The first argument is ignored.
-func (d *DynamoMap) StoreIfAbsent(_, val interface{}) (stored bool) {
-	valItem, err := MarshalItem(val)
-	d.forbidErr(err)
-	stored, err2 := d.storeItemIfAbsent(valItem)
-	d.forbidErr(err2)
-	return stored
+func (d *DynamoMap) StoreIfAbsent(val interface{}) (stored bool, err error) {
+	if valItem, err := MarshalItem(val); err == nil {
+		return d.storeItemIfAbsent(valItem)
+	} else {
+		return false, err
+	}
 }
 
 // LoadOrStore returns the value stored under same key(s) as the given value, if any,
@@ -306,12 +306,12 @@ func (d *DynamoMap) LoadOrStoreItem(val Itemable) (actual Item, loaded bool, err
 // else stores and returns the given value.
 // The loaded result is true if the value was loaded, false if stored.
 // The first argument is ignored.
-func (d *DynamoMap) LoadOrStore(_, val interface{}) (interface{}, bool) {
-	valItem, err := MarshalItem(val)
-	d.forbidErr(err)
-	actual, stored, err := d.loadOrStore(valItem)
-	d.forbidErr(err)
-	return actual, stored
+func (d *DynamoMap) LoadOrStore(val interface{}) (interface{}, bool, error) {
+	if valItem, err := MarshalItem(val); err == nil {
+		return d.loadOrStore(valItem)
+	} else {
+		return nil, false, err
+	}
 }
 
 func (d *DynamoMap) storeItemIfVersion(item Item, version int64) (bool, error) {
@@ -374,8 +374,8 @@ func (d *DynamoMap) RangeItems(consumer func(Item) bool) error {
 // Iteration eventually stops if the given function returns false.
 // The consumed key will be nil unless KeyUnmarshaller is set.
 // The consumed value will be an Item unless ValueUnmarshaller is set.
-func (d *DynamoMap) Range(consumer func(key, value interface{}) bool) {
-	d.forbidErr(d.RangeItems(func(item Item) bool {
-		return consumer(d.unmarshalKey(item), d.unmarshalValue(item))
-	}))
+func (d *DynamoMap) Range(consumer func(value interface{}) bool) error {
+	return d.RangeItems(func(item Item) bool {
+		return consumer(d.unmarshalValue(item))
+	})
 }

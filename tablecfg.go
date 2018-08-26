@@ -58,11 +58,6 @@ type TableConfig struct {
 	// If ValueUnmarshaller is not nil, the result of passing the value item to the unmarshaller
 	// is returned as the value instead of the item.
 	ValueUnmarshaller ItemUnmarshaller
-	// KeyUnmarshaller can be used to change what keys are returned by Range.
-	// Range keys are nil if KeyUnmarshaller is nil.
-	// If KeyUnmarshaller is not nil, the result of passing an item with only the key(s) to the unmarshaller
-	// is returned as the key instead of nil.
-	KeyUnmarshaller ItemUnmarshaller
 	// Options for creating the table
 	CreateTableOptions
 }
