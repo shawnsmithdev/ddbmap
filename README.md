@@ -84,15 +84,6 @@ go get -u github.com/aws/aws-sdk-go-v2
 go get -u golang.org/x/sync
 ```
 
-# Conditional Updates (versions)
-Using the Item API, if users wishes to do
-[conditional updates](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/WorkingWithItems.html#WorkingWithItems.ConditionalUpdate),
-where the condition is stronger than just a record's presence or absence, they should define a numerical version field
-and configure `VersionName` in their `TableConfig` to the name of that field. Dynamo can support conditional operations
-on any field, but the potential for losing updates is too high if update conditions depend on fields that do not
-obviously need to be changed on update. An explicit version field can help avoid an entire class of potential concurrent
-modification bugs, so that is all this library supports.
-
 # TODO
 * Test range early termination
 * Test other set types, null
