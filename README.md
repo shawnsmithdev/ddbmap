@@ -76,6 +76,12 @@ DynamoDB type system, with or without using reflection.
 where the condition is stronger than just a record's absence, is supported by defining a numerical version field
 and configuring `VersionName` in the `TableConfig` to the name of that field.
 
+# Time To Live
+If the `TimeToLiveDuration` field in the `TableConfig` is set, each record will be stored with a new number field
+set to Unix epoch seconds of time the record was stored, plus the configured duration. This is useful when using the
+[TTL](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/TTL.html) feature of DynamoDB tables.
+The field name is `TTL` by default but can be changed with `TimeToLiveName` in `TableConfig`.
+
 # Dependencies
 This library depends on the AWS Go SDK v2 and `golang.org/x/sync`.
 If building with a go version older than 1.11, you will need to install these dependencies manually.

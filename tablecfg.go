@@ -92,32 +92,22 @@ func (tc TableConfig) NewMap(cfg aws.Config) (*DynamoMap, error) {
 		TableConfig: tc,
 		Client:      ddb.New(cfg),
 	}
+	var status ddb.TableStatus
+	err := error(nil)
+
 	if tc.CreateTableIfAbsent {
-		var (
-			status ddb.TableStatus
-			err    error
-		)
-		for {
-			status, err = im.DescribeTable(false)
-			if err != nil {
-				return nil, err
-			}
-			switch status {
-			case "":
-				if err = im.CreateTable(); err != nil {
-					return nil, err
-				}
-			case ddb.TableStatusDeleting:
-				return nil, errors.New("table is being deleted")
-			default:
-				return im, nil
-			}
+		status, err = im.DescribeTable(false)
+		if "" == status {
+			err = im.CreateTable()
 		}
 	} else if "" == tc.HashKeyName {
-		if status, err := im.DescribeTable(true); err != nil {
-			return nil, err
-		} else if "" == status {
+		status, err = im.DescribeTable(true)
+		if "" == status {
+			return nil, errors.New("table does not exist, and hash key name is empty")
 		}
+	}
+	if err != nil {
+		return nil, err
 	}
 	return im, nil
 }
