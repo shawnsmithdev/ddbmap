@@ -223,6 +223,8 @@ func (d *DynamoMap) store(item Item, condition *expression.ConditionBuilder) err
 		if err != nil {
 			return err
 		}
+		input.ExpressionAttributeNames = condExpr.Names()
+		input.ExpressionAttributeValues = condExpr.Values()
 		input.ConditionExpression = condExpr.Condition()
 	}
 	if d.TimeToLiveDuration > 0 {

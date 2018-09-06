@@ -93,18 +93,42 @@ func checkItemMap(cars ItemMap, t *testing.T) {
 	if !reflect.DeepEqual(c2, c1) {
 		t.Fatal("expected value from get doesn't match", c2, c1)
 	}
+	c3 := car{
+		Id:      "b",
+		Name:    "Simon",
+		Weight:  2103,
+		Picture: []byte{0xff, 0x00, 0x00, 0xff},
+	}
+	if ok, err := cars.StoreItemIfAbsent(&c3); !ok {
+		t.Fatal("expected to store if absent, but did not")
+	} else if err != nil {
+		t.Fatal("unexpected error", err)
+	}
+	time.Sleep(1 * time.Second)
+	if ok, err := cars.StoreItemIfAbsent(&c3); ok {
+		t.Fatal("expected to not store if absent, but did")
+	} else if err != nil {
+		t.Fatal("unexpected error", err)
+	}
+
 	// iterate
 	exists := false
-	match := false
+	match := []bool{false, false}
 	cars.RangeItems(func(item Item) bool {
 		exists = true
-		match = reflect.DeepEqual(carFromItem(item), c1)
+		asCar := carFromItem(item)
+		if !match[0] {
+			match[0] = reflect.DeepEqual(asCar, c1)
+		}
+		if !match[1] {
+			match[1] = reflect.DeepEqual(asCar, c3)
+		}
 		return true
 	})
 	if !exists {
 		t.Fatal("expected value from scan doesn't exist")
 	}
-	if !match {
+	if !match[0] || !match[1] {
 		t.Fatal("expected value from scan doesn't match")
 	}
 }
