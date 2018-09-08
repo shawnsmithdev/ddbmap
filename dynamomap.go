@@ -29,9 +29,7 @@ var (
 	_ ItemMap = &DynamoMap{}
 )
 
-// DynamoMap is a map view of a DynamoDB table.
-// The reflection-based api (ddb.Map) will panic on any unhandled AWS client error.
-// The Itemable api (ddb.ItemMap) returns errors instead and so will not panic.
+// DynamoMap is a map view of a DynamoDB table. *DynamoMap implements both Map and ItemMap.
 type DynamoMap struct {
 	TableConfig
 	Client *ddb.DynamoDB
@@ -149,6 +147,71 @@ func (d *DynamoMap) CreateTable() error {
 	d.debug("create table request input:", input)
 	resp, err := d.Client.CreateTableRequest(input).Send()
 	d.debug("created table response:", resp, ", error:", err)
+	return err
+}
+
+func (d *DynamoMap) descTTL() (*ddb.DescribeTimeToLiveOutput, error) {
+	descInput := &ddb.DescribeTimeToLiveInput{TableName:&d.TableName}
+	d.debug("describe ttl request input:", descInput)
+	descResp, err := d.Client.DescribeTimeToLiveRequest(descInput).Send()
+	d.debug("describe ttl response:", descResp, ", error:", err)
+	return descResp, err
+}
+
+func (d *DynamoMap) updateTTL(enabled bool) error {
+	updateInput := &ddb.UpdateTimeToLiveInput{
+		TableName:&d.TableName,
+		TimeToLiveSpecification: &ddb.TimeToLiveSpecification{
+			AttributeName: &d.TimeToLiveName,
+			Enabled: &enabled,
+		},
+	}
+	d.debug("update ttl request input:", updateInput)
+	updateResp, err := d.Client.UpdateTimeToLiveRequest(updateInput).Send()
+	d.debug("update ttl response:", updateResp, ", error:", err)
+	return err
+}
+
+// EnableTTL will enable TimeToLive on the table if it is not enabled,
+// or update it if the configured time to live attribute name does not match the one currently in use.
+func (d *DynamoMap) EnableTTL() error {
+	if d.TimeToLiveDuration <= 0 {
+		return nil
+	}
+	if d.TimeToLiveName == "" {
+		d.TimeToLiveName = DefaultTimeToLiveName
+	}
+	descResp, err := d.descTTL()
+	if err != nil {
+		return err
+	}
+	switch descResp.TimeToLiveDescription.TimeToLiveStatus {
+	case ddb.TimeToLiveStatusEnabled:
+		ttlName := *descResp.TimeToLiveDescription.AttributeName
+		if ttlName != d.TimeToLiveName {
+			d.log("will change ttl attribute name from", ttlName, "to", d.TimeToLiveName)
+			d.updateTTL(true)
+		}
+	case ddb.TimeToLiveStatusDisabled:
+		d.updateTTL(true)
+	case ddb.TimeToLiveStatusDisabling:
+		d.log("Cannot enable ttl when status is DISABLING, doing nothing")
+	}
+	return err
+}
+
+// DisableTTL will disable TimeToLive on the table if it is enabled.
+func (d *DynamoMap) DisableTTL() error {
+	descResp, err := d.descTTL()
+	if err != nil {
+		return err
+	}
+	switch descResp.TimeToLiveDescription.TimeToLiveStatus {
+	case ddb.TimeToLiveStatusEnabled:
+		d.updateTTL(false)
+	case ddb.TimeToLiveStatusEnabling:
+		d.log("Cannot disable ttl when status is ENABLING, doing nothing")
+	}
 	return err
 }
 

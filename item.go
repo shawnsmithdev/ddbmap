@@ -1,10 +1,13 @@
 package ddbmap
 
 import (
+	"fmt"
 	ddb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/dynamodbattribute"
 	"github.com/shawnsmithdev/ddbmap/ddbconv"
 	"reflect"
+	"sort"
+	"strings"
 )
 
 // Item is a type underlied by the map type output by dynamodbattribute.MarshalMap.
@@ -47,6 +50,29 @@ func (item Item) Project(attrs ...string) Item {
 		}
 	}
 	return result
+}
+
+// String returns a string representation of the content of the item
+func (item Item) String() string {
+	// print in order
+	var attrs []string
+	for k := range item {
+		attrs = append(attrs, k)
+	}
+	sort.Strings(attrs)
+
+	result := "item{"
+	for _, k := range attrs {
+		v := item[k]
+		// attributevalue String() has unwanted newlines and whitespace
+		vstr := strings.Replace(v.String(), "\n  ", "", -1)
+		vstr = strings.Replace(vstr, "\n", "", -1)
+		result = result + fmt.Sprintf("%v:%v, ", k, vstr)
+	}
+	if len(attrs) > 0 {
+		result = result[:len(result)-2]
+	}
+	return result + "}"
 }
 
 // Itemable is implemented by types that can directly build representations of their data in the DynamoDB type system.

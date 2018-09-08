@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/dynamodbattribute"
 	"github.com/shawnsmithdev/ddbmap/ddbconv"
+	"log"
 	"os"
 	"reflect"
 	"testing"
@@ -57,6 +58,7 @@ func (c *car) AsItem() Item {
 }
 
 func carFromItem(item Item) car {
+	log.Println(item)
 	result := car{
 		Id:      ddbconv.DecodeString(item["Id"]),
 		Name:    ddbconv.DecodeString(item["Name"]),
@@ -99,6 +101,7 @@ func checkItemMap(cars ItemMap, t *testing.T) {
 		Weight:  2103,
 		Picture: []byte{0xff, 0x00, 0x00, 0xff},
 	}
+	defer cars.DeleteItem(&c3)
 	if ok, err := cars.StoreItemIfAbsent(&c3); !ok {
 		t.Fatal("expected to store if absent, but did not")
 	} else if err != nil {

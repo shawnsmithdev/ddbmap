@@ -10,7 +10,7 @@ type syncMap struct {
 	keyFromValue KeyFromValue
 }
 
-// Creates a new Map that uses sync.Map as storage. This is intended for use in tests.
+// NewSyncMap creates a new Map that uses sync.Map as storage. This is intended for use in tests.
 func NewSyncMap(keyFromValue KeyFromValue) Map {
 	return &syncMap{keyFromValue: keyFromValue}
 }

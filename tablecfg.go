@@ -88,7 +88,7 @@ func (tc TableConfig) NewMap(cfg aws.Config) (*DynamoMap, error) {
 			tc.Logger = cfg.Logger
 		}
 	}
-	im := &DynamoMap{
+	dmap := &DynamoMap{
 		TableConfig: tc,
 		Client:      ddb.New(cfg),
 	}
@@ -96,12 +96,12 @@ func (tc TableConfig) NewMap(cfg aws.Config) (*DynamoMap, error) {
 	err := error(nil)
 
 	if tc.CreateTableIfAbsent {
-		status, err = im.DescribeTable(false)
+		status, err = dmap.DescribeTable(false)
 		if "" == status {
-			err = im.CreateTable()
+			err = dmap.CreateTable()
 		}
 	} else if "" == tc.HashKeyName {
-		status, err = im.DescribeTable(true)
+		status, err = dmap.DescribeTable(true)
 		if "" == status {
 			return nil, errors.New("table does not exist, and hash key name is empty")
 		}
@@ -109,5 +109,8 @@ func (tc TableConfig) NewMap(cfg aws.Config) (*DynamoMap, error) {
 	if err != nil {
 		return nil, err
 	}
-	return im, nil
+	if dmap.TimeToLiveDuration > 0 {
+		dmap.EnableTTL()
+	}
+	return dmap, nil
 }
