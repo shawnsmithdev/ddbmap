@@ -151,7 +151,7 @@ func (d *DynamoMap) CreateTable() error {
 }
 
 func (d *DynamoMap) descTTL() (*ddb.DescribeTimeToLiveOutput, error) {
-	descInput := &ddb.DescribeTimeToLiveInput{TableName:&d.TableName}
+	descInput := &ddb.DescribeTimeToLiveInput{TableName: &d.TableName}
 	d.debug("describe ttl request input:", descInput)
 	descResp, err := d.Client.DescribeTimeToLiveRequest(descInput).Send()
 	d.debug("describe ttl response:", descResp, ", error:", err)
@@ -159,11 +159,14 @@ func (d *DynamoMap) descTTL() (*ddb.DescribeTimeToLiveOutput, error) {
 }
 
 func (d *DynamoMap) updateTTL(enabled bool) error {
+	if d.TimeToLiveName == "" {
+		d.TimeToLiveName = DefaultTimeToLiveName
+	}
 	updateInput := &ddb.UpdateTimeToLiveInput{
-		TableName:&d.TableName,
+		TableName: &d.TableName,
 		TimeToLiveSpecification: &ddb.TimeToLiveSpecification{
 			AttributeName: &d.TimeToLiveName,
-			Enabled: &enabled,
+			Enabled:       &enabled,
 		},
 	}
 	d.debug("update ttl request input:", updateInput)
@@ -178,9 +181,6 @@ func (d *DynamoMap) EnableTTL() error {
 	if d.TimeToLiveDuration <= 0 {
 		return nil
 	}
-	if d.TimeToLiveName == "" {
-		d.TimeToLiveName = DefaultTimeToLiveName
-	}
 	descResp, err := d.descTTL()
 	if err != nil {
 		return err
@@ -188,12 +188,12 @@ func (d *DynamoMap) EnableTTL() error {
 	switch descResp.TimeToLiveDescription.TimeToLiveStatus {
 	case ddb.TimeToLiveStatusEnabled:
 		ttlName := *descResp.TimeToLiveDescription.AttributeName
-		if ttlName != d.TimeToLiveName {
-			d.log("will change ttl attribute name from", ttlName, "to", d.TimeToLiveName)
-			d.updateTTL(true)
+		if !(ttlName == d.TimeToLiveName || (ttlName == DefaultTimeToLiveName && d.TimeToLiveName == "")) {
+			d.log("Will update Time To Live attribute, was:", ttlName)
+			err = d.updateTTL(true)
 		}
 	case ddb.TimeToLiveStatusDisabled:
-		d.updateTTL(true)
+		err = d.updateTTL(true)
 	case ddb.TimeToLiveStatusDisabling:
 		d.log("Cannot enable ttl when status is DISABLING, doing nothing")
 	}
@@ -208,7 +208,7 @@ func (d *DynamoMap) DisableTTL() error {
 	}
 	switch descResp.TimeToLiveDescription.TimeToLiveStatus {
 	case ddb.TimeToLiveStatusEnabled:
-		d.updateTTL(false)
+		err = d.updateTTL(false)
 	case ddb.TimeToLiveStatusEnabling:
 		d.log("Cannot disable ttl when status is ENABLING, doing nothing")
 	}
@@ -232,12 +232,11 @@ func (d *DynamoMap) DeleteItem(key Itemable) error {
 }
 
 // Delete delete the value stored under the same key(s) as the given value, if any.
-func (d *DynamoMap) Delete(key interface{}) error {
+func (d *DynamoMap) Delete(key interface{}) (err error) {
 	if item, err := MarshalItem(key); err == nil {
 		return d.delete(item)
-	} else {
-		return err
 	}
+	return err
 }
 
 func (d *DynamoMap) load(key Item) (value Item, ok bool, err error) {
@@ -310,12 +309,11 @@ func (d *DynamoMap) StoreItem(val Itemable) error {
 }
 
 // Store stores the given value. The first argument is ignored.
-func (d *DynamoMap) Store(val interface{}) error {
+func (d *DynamoMap) Store(val interface{}) (err error) {
 	if valItem, err := MarshalItem(val); err == nil {
 		return d.store(valItem, nil)
-	} else {
-		return err
 	}
+	return err
 }
 
 func (d *DynamoMap) storeItemIfAbsent(item Item) (stored bool, err error) {
@@ -341,9 +339,8 @@ func (d *DynamoMap) StoreItemIfAbsent(val Itemable) (stored bool, err error) {
 func (d *DynamoMap) StoreIfAbsent(val interface{}) (stored bool, err error) {
 	if valItem, err := MarshalItem(val); err == nil {
 		return d.storeItemIfAbsent(valItem)
-	} else {
-		return false, err
 	}
+	return false, err
 }
 
 // LoadOrStore returns the value stored under same key(s) as the given value, if any,
@@ -371,12 +368,11 @@ func (d *DynamoMap) LoadOrStoreItem(val Itemable) (actual Item, loaded bool, err
 // else stores and returns the given value.
 // The loaded result is true if the value was loaded, false if stored.
 // The first argument is ignored.
-func (d *DynamoMap) LoadOrStore(val interface{}) (interface{}, bool, error) {
+func (d *DynamoMap) LoadOrStore(val interface{}) (actual interface{}, loaded bool, err error) {
 	if valItem, err := MarshalItem(val); err == nil {
 		return d.loadOrStore(valItem)
-	} else {
-		return nil, false, err
 	}
+	return nil, false, err
 }
 
 func (d *DynamoMap) storeItemIfVersion(item Item, version int64) (bool, error) {
@@ -426,7 +422,7 @@ func (d *DynamoMap) RangeItems(consumer func(Item) bool) error {
 	input.TotalSegments = aws.Int64(int64(d.ScanConcurrency))
 	worker.ctx = ctx
 	for i := 0; i < d.ScanConcurrency; i++ {
-		group.Go(worker.withId(i, input).work)
+		group.Go(worker.withID(i, input).work)
 	}
 	err := group.Wait()
 	if err == errEarlyTermination {

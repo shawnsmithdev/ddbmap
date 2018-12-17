@@ -6,22 +6,22 @@ import (
 )
 
 type scanWorker struct {
-	workerId int64
+	workerID int64
 	input    *ddb.ScanInput
 	table    *DynamoMap
 	consumer func(Item) bool
 	ctx      context.Context
 }
 
-func (s scanWorker) withId(workerId int, input ddb.ScanInput) *scanWorker {
-	s.workerId = int64(workerId)
-	input.Segment = &s.workerId
+func (s scanWorker) withID(workerID int, input ddb.ScanInput) *scanWorker {
+	s.workerID = int64(workerID)
+	input.Segment = &s.workerID
 	s.input = &input
 	return &s
 }
 
 func (s *scanWorker) debug(input ...interface{}) {
-	s.table.debug(append(input, "worker:", s.workerId)...)
+	s.table.debug(append(input, "worker:", s.workerID)...)
 }
 
 func (s *scanWorker) work() error {
