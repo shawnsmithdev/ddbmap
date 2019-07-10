@@ -117,7 +117,7 @@ func checkItemMap(cars ItemMap, t *testing.T) {
 	// iterate
 	exists := false
 	match := []bool{false, false}
-	cars.RangeItems(func(item Item) bool {
+	err = cars.RangeItems(func(item Item) bool {
 		exists = true
 		asCar := carFromItem(item)
 		if !match[0] {
@@ -128,6 +128,9 @@ func checkItemMap(cars ItemMap, t *testing.T) {
 		}
 		return true
 	})
+	if err != nil {
+		t.Fatal("unexpected expected error")
+	}
 	if !exists {
 		t.Fatal("expected value from scan doesn't exist")
 	}

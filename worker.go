@@ -2,18 +2,18 @@ package ddbmap
 
 import (
 	"context"
-	ddb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 )
 
 type scanWorker struct {
 	workerID int64
-	input    *ddb.ScanInput
+	input    *dynamodb.ScanInput
 	table    *DynamoMap
 	consumer func(Item) bool
 	ctx      context.Context
 }
 
-func (s scanWorker) withID(workerID int, input ddb.ScanInput) *scanWorker {
+func (s scanWorker) withID(workerID int, input dynamodb.ScanInput) *scanWorker {
 	s.workerID = int64(workerID)
 	input.Segment = &s.workerID
 	s.input = &input
@@ -29,7 +29,7 @@ func (s *scanWorker) work() error {
 	for {
 		// fetch a page
 		s.debug("scan request input:", s.input)
-		resp, err := s.table.Client.ScanRequest(s.input).Send()
+		resp, err := s.table.Client.ScanRequest(s.input).Send(context.Background())
 		s.debug("scan response:", resp, "error:", err)
 		if err != nil {
 			return err

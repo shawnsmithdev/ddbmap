@@ -2,7 +2,7 @@ package ddbmap
 
 import (
 	"fmt"
-	ddb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/dynamodbattribute"
 	"github.com/shawnsmithdev/ddbmap/ddbconv"
 	"reflect"
@@ -12,7 +12,7 @@ import (
 
 // Item is a type underlied by the map type output by dynamodbattribute.MarshalMap.
 // This represents a single row in a DynamoDB table or a 'Map' in the DynamoDB type system.
-type Item map[string]ddb.AttributeValue
+type Item map[string]dynamodb.AttributeValue
 
 // AsItem directly returns this item.
 func (item Item) AsItem() Item {

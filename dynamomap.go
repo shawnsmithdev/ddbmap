@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/aws/aws-sdk-go-v2/aws"
-	ddb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/expression"
 	"github.com/shawnsmithdev/ddbmap/ddbconv"
 	"golang.org/x/sync/errgroup"
@@ -32,7 +32,7 @@ var (
 // DynamoMap is a map view of a DynamoDB table. *DynamoMap implements both Map and ItemMap.
 type DynamoMap struct {
 	TableConfig
-	Client *ddb.DynamoDB
+	Client *dynamodb.Client
 }
 
 func (d *DynamoMap) log(vals ...interface{}) {
@@ -68,17 +68,17 @@ func (d *DynamoMap) unmarshalValue(item Item) interface{} {
 // If the status is CREATING, the call will poll waiting for the status to change.
 // If the table does not exist, the status will be empty.
 // If setKeys is true, the keys will be set using the table description.
-func (d *DynamoMap) DescribeTable(setKeys bool) (status ddb.TableStatus, err error) {
-	input := &ddb.DescribeTableInput{TableName: &d.TableName}
-	var dtResp *ddb.DescribeTableOutput
+func (d *DynamoMap) DescribeTable(setKeys bool) (status dynamodb.TableStatus, err error) {
+	input := &dynamodb.DescribeTableInput{TableName: &d.TableName}
+	var dtResp *dynamodb.DescribeTableResponse
 
 	for {
 		d.debug("describe table request input:", input)
 		dtReq := d.Client.DescribeTableRequest(input)
-		dtResp, err = dtReq.Send()
+		dtResp, err = dtReq.Send(context.Background())
 		d.debug("describe table response:", dtResp, ", error:", err)
 		if err != nil {
-			if ddb.ErrCodeResourceNotFoundException == getErrCode(err) {
+			if dynamodb.ErrCodeResourceNotFoundException == getErrCode(err) {
 				return "", nil
 			}
 			return "", err
@@ -88,17 +88,17 @@ func (d *DynamoMap) DescribeTable(setKeys bool) (status ddb.TableStatus, err err
 		d.debug("table status:", status)
 
 		switch status {
-		case ddb.TableStatusCreating: // Wait for creating
+		case dynamodb.TableStatusCreating: // Wait for creating
 			d.log("waiting for status:", status)
 			time.Sleep(creatingPollDuration)
 			continue
-		case ddb.TableStatusDeleting: // Give up if deleting
+		case dynamodb.TableStatusDeleting: // Give up if deleting
 			d.log("cannot use table being deleted")
 			return status, fmt.Errorf("cannot use table being deleted")
 		default: // Table usable, check key names
 			if setKeys {
 				for _, keySchema := range dtResp.Table.KeySchema {
-					if keySchema.KeyType == ddb.KeyTypeHash {
+					if keySchema.KeyType == dynamodb.KeyTypeHash {
 						d.HashKeyName = *keySchema.AttributeName
 						d.debug("found hash key:", d.HashKeyName)
 					} else {
@@ -114,17 +114,17 @@ func (d *DynamoMap) DescribeTable(setKeys bool) (status ddb.TableStatus, err err
 
 // CreateTable creates a new table.
 func (d *DynamoMap) CreateTable() error {
-	schema := []ddb.KeySchemaElement{
-		{AttributeName: &d.HashKeyName, KeyType: ddb.KeyTypeHash},
+	schema := []dynamodb.KeySchemaElement{
+		{AttributeName: &d.HashKeyName, KeyType: dynamodb.KeyTypeHash},
 	}
-	attrs := []ddb.AttributeDefinition{
+	attrs := []dynamodb.AttributeDefinition{
 		{AttributeName: &d.HashKeyName, AttributeType: d.HashKeyType},
 	}
 	if d.Ranged() {
 		schema = append(schema,
-			ddb.KeySchemaElement{AttributeName: &d.RangeKeyName, KeyType: ddb.KeyTypeRange})
+			dynamodb.KeySchemaElement{AttributeName: &d.RangeKeyName, KeyType: dynamodb.KeyTypeRange})
 		attrs = append(attrs,
-			ddb.AttributeDefinition{AttributeName: &d.RangeKeyName, AttributeType: d.RangeKeyType})
+			dynamodb.AttributeDefinition{AttributeName: &d.RangeKeyName, AttributeType: d.RangeKeyType})
 	}
 	if d.CreateTableReadCapacity < 1 {
 		d.CreateTableReadCapacity = 1
@@ -132,28 +132,28 @@ func (d *DynamoMap) CreateTable() error {
 	if d.CreateTableWriteCapacity < 1 {
 		d.CreateTableWriteCapacity = 1
 	}
-	input := &ddb.CreateTableInput{
+	input := &dynamodb.CreateTableInput{
 		TableName:            &d.TableName,
 		KeySchema:            schema,
 		AttributeDefinitions: attrs,
-		ProvisionedThroughput: &ddb.ProvisionedThroughput{
+		ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
 			ReadCapacityUnits:  aws.Int64(int64(d.CreateTableReadCapacity)),
 			WriteCapacityUnits: aws.Int64(int64(d.CreateTableWriteCapacity)),
 		},
-		SSESpecification: &ddb.SSESpecification{
+		SSESpecification: &dynamodb.SSESpecification{
 			Enabled: aws.Bool(d.ServerSideEncryption),
 		},
 	}
 	d.debug("create table request input:", input)
-	resp, err := d.Client.CreateTableRequest(input).Send()
+	resp, err := d.Client.CreateTableRequest(input).Send(context.Background())
 	d.debug("created table response:", resp, ", error:", err)
 	return err
 }
 
-func (d *DynamoMap) descTTL() (*ddb.DescribeTimeToLiveOutput, error) {
-	descInput := &ddb.DescribeTimeToLiveInput{TableName: &d.TableName}
+func (d *DynamoMap) descTTL() (*dynamodb.DescribeTimeToLiveResponse, error) {
+	descInput := &dynamodb.DescribeTimeToLiveInput{TableName: &d.TableName}
 	d.debug("describe ttl request input:", descInput)
-	descResp, err := d.Client.DescribeTimeToLiveRequest(descInput).Send()
+	descResp, err := d.Client.DescribeTimeToLiveRequest(descInput).Send(context.Background())
 	d.debug("describe ttl response:", descResp, ", error:", err)
 	return descResp, err
 }
@@ -162,15 +162,15 @@ func (d *DynamoMap) updateTTL(enabled bool) error {
 	if d.TimeToLiveName == "" {
 		d.TimeToLiveName = DefaultTimeToLiveName
 	}
-	updateInput := &ddb.UpdateTimeToLiveInput{
+	updateInput := &dynamodb.UpdateTimeToLiveInput{
 		TableName: &d.TableName,
-		TimeToLiveSpecification: &ddb.TimeToLiveSpecification{
+		TimeToLiveSpecification: &dynamodb.TimeToLiveSpecification{
 			AttributeName: &d.TimeToLiveName,
 			Enabled:       &enabled,
 		},
 	}
 	d.debug("update ttl request input:", updateInput)
-	updateResp, err := d.Client.UpdateTimeToLiveRequest(updateInput).Send()
+	updateResp, err := d.Client.UpdateTimeToLiveRequest(updateInput).Send(context.Background())
 	d.debug("update ttl response:", updateResp, ", error:", err)
 	return err
 }
@@ -186,15 +186,15 @@ func (d *DynamoMap) EnableTTL() error {
 		return err
 	}
 	switch descResp.TimeToLiveDescription.TimeToLiveStatus {
-	case ddb.TimeToLiveStatusEnabled:
+	case dynamodb.TimeToLiveStatusEnabled:
 		ttlName := *descResp.TimeToLiveDescription.AttributeName
 		if !(ttlName == d.TimeToLiveName || (ttlName == DefaultTimeToLiveName && d.TimeToLiveName == "")) {
 			d.log("Will update Time To Live attribute, was:", ttlName)
 			err = d.updateTTL(true)
 		}
-	case ddb.TimeToLiveStatusDisabled:
+	case dynamodb.TimeToLiveStatusDisabled:
 		err = d.updateTTL(true)
-	case ddb.TimeToLiveStatusDisabling:
+	case dynamodb.TimeToLiveStatusDisabling:
 		d.log("Cannot enable ttl when status is DISABLING, doing nothing")
 	}
 	return err
@@ -207,21 +207,21 @@ func (d *DynamoMap) DisableTTL() error {
 		return err
 	}
 	switch descResp.TimeToLiveDescription.TimeToLiveStatus {
-	case ddb.TimeToLiveStatusEnabled:
+	case dynamodb.TimeToLiveStatusEnabled:
 		err = d.updateTTL(false)
-	case ddb.TimeToLiveStatusEnabling:
+	case dynamodb.TimeToLiveStatusEnabling:
 		d.log("Cannot disable ttl when status is ENABLING, doing nothing")
 	}
 	return err
 }
 
 func (d *DynamoMap) delete(item Item) error {
-	input := &ddb.DeleteItemInput{
+	input := &dynamodb.DeleteItemInput{
 		TableName: &d.TableName,
 		Key:       d.ToKeyItem(item),
 	}
 	d.debug("delete request input:", input)
-	resp, err := d.Client.DeleteItemRequest(input).Send()
+	resp, err := d.Client.DeleteItemRequest(input).Send(context.Background())
 	d.debug("delete response:", resp, ", error:", err)
 	return err
 }
@@ -240,13 +240,13 @@ func (d *DynamoMap) Delete(key interface{}) (err error) {
 }
 
 func (d *DynamoMap) load(key Item) (value Item, ok bool, err error) {
-	input := &ddb.GetItemInput{
+	input := &dynamodb.GetItemInput{
 		TableName:      &d.TableName,
 		ConsistentRead: &d.ReadWithStrongConsistency,
 		Key:            d.ToKeyItem(key),
 	}
 	d.debug("load request input:", input)
-	resp, err := d.Client.GetItemRequest(input).Send()
+	resp, err := d.Client.GetItemRequest(input).Send(context.Background())
 	d.debug("load response:", resp, ", error:", err)
 	if err == nil {
 		return resp.Item, len(resp.Item) > 0, err
@@ -276,7 +276,7 @@ func (d *DynamoMap) Load(key interface{}) (value interface{}, ok bool, err error
 }
 
 func (d *DynamoMap) store(item Item, condition *expression.ConditionBuilder) error {
-	input := &ddb.PutItemInput{
+	input := &dynamodb.PutItemInput{
 		TableName: &d.TableName,
 		Item:      item,
 	}
@@ -298,7 +298,7 @@ func (d *DynamoMap) store(item Item, condition *expression.ConditionBuilder) err
 		}
 	}
 	d.debug("store request input:", input)
-	resp, err := d.Client.PutItemRequest(input).Send()
+	resp, err := d.Client.PutItemRequest(input).Send(context.Background())
 	d.debug("store response:", resp, ", error:", err)
 	return err
 }
@@ -322,7 +322,7 @@ func (d *DynamoMap) storeItemIfAbsent(item Item) (stored bool, err error) {
 	if err == nil {
 		return true, nil
 	}
-	if ddb.ErrCodeConditionalCheckFailedException != getErrCode(err) {
+	if dynamodb.ErrCodeConditionalCheckFailedException != getErrCode(err) {
 		return false, err
 	}
 	return false, nil
@@ -378,7 +378,7 @@ func (d *DynamoMap) LoadOrStore(val interface{}) (actual interface{}, loaded boo
 func (d *DynamoMap) storeItemIfVersion(item Item, version int64) (bool, error) {
 	hasVersion := expression.Name(d.VersionName).Equal(expression.Value(version))
 	err := d.store(item.AsItem(), &hasVersion)
-	if ddb.ErrCodeConditionalCheckFailedException == getErrCode(err) {
+	if dynamodb.ErrCodeConditionalCheckFailedException == getErrCode(err) {
 		return false, nil
 	}
 	return err == nil, err
@@ -403,10 +403,10 @@ func (d *DynamoMap) StoreIfVersion(val interface{}, version int64) (ok bool) {
 // RangeItems calls the given consumer for each stored item.
 // Iteration eventually stops if the given function returns false.
 func (d *DynamoMap) RangeItems(consumer func(Item) bool) error {
-	input := ddb.ScanInput{
+	input := dynamodb.ScanInput{
 		TableName:      &d.TableName,
 		ConsistentRead: &d.ReadWithStrongConsistency,
-		Select:         ddb.SelectAllAttributes,
+		Select:         dynamodb.SelectAllAttributes,
 	}
 	worker := scanWorker{
 		input:    &input,

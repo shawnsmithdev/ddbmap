@@ -3,7 +3,7 @@ package ddbmap
 import (
 	"errors"
 	"github.com/aws/aws-sdk-go-v2/aws"
-	ddb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"os"
 	"time"
 )
@@ -19,9 +19,9 @@ type CreateTableOptions struct {
 	// CreateTableReadCapacity is the write capacity of the new table, if created. 1 is used if less than 1.
 	CreateTableWriteCapacity int
 	// The type of the hash key attribute.
-	HashKeyType ddb.ScalarAttributeType
+	HashKeyType dynamodb.ScalarAttributeType
 	// The type of the range key attribute, if any.
-	RangeKeyType ddb.ScalarAttributeType
+	RangeKeyType dynamodb.ScalarAttributeType
 	// If true, Server Side Encryption (SSE) is enabled.
 	ServerSideEncryption bool
 }
@@ -90,9 +90,9 @@ func (tc TableConfig) NewMap(cfg aws.Config) (*DynamoMap, error) {
 	}
 	dmap := &DynamoMap{
 		TableConfig: tc,
-		Client:      ddb.New(cfg),
+		Client:      dynamodb.New(cfg),
 	}
-	var status ddb.TableStatus
+	var status dynamodb.TableStatus
 	err := error(nil)
 
 	if tc.CreateTableIfAbsent {
@@ -110,7 +110,10 @@ func (tc TableConfig) NewMap(cfg aws.Config) (*DynamoMap, error) {
 		return nil, err
 	}
 	if dmap.TimeToLiveDuration > 0 {
-		dmap.EnableTTL()
+		err = dmap.EnableTTL()
+		if err != nil {
+			return nil, err
+		}
 	}
 	return dmap, nil
 }
