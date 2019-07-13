@@ -19,7 +19,7 @@ services:
 
 before_install:
   - docker pull amazon/dynamodb-local
-  - docker run -d -p 8000:8000 amazon/dynamodb-local -inMemory
+  - docker run -d -p 8000:8000 amazon/dynamodb-local
   - docker ps -a
   - go get -u
 
